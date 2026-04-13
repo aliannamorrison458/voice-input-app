@@ -1,7 +1,5 @@
-venv/
-__pycache__/
-*.pyc
-dist/
-build/
-*.egg-info/
-.voice-input/
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+.DS_Store
