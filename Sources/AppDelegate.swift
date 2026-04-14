@@ -246,8 +246,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !AXIsProcessTrusted() {
                 AppLogger.warn("辅助功能权限未授权")
                 let alert = NSAlert()
-                alert.messageText = "需要辅助功能权限"
-                alert.informativeText = "VoiceInput 需要辅助功能权限才能将识别的文字输入到其他应用。\n\n请在「系统设置 → 隐私与安全 → 辅助功能」中启用 VoiceInput。"
+                alert.messageText = "VoiceInput 需要辅助功能权限"
+                alert.informativeText = "VoiceInput 需要辅助功能权限才能将识别的文字输入到其他应用。\n\n按住 Fn 键说话后，松开即可自动输入文字。\n\n请在「系统设置 → 隐私与安全 → 辅助功能」中启用 VoiceInput。"
                 alert.alertStyle = .informational
                 alert.addButton(withTitle: "打开系统设置")
                 alert.addButton(withTitle: "稍后设置")
