@@ -13,6 +13,11 @@ final class STTClient {
     private let transcribeMode: Config.TranscribeMode
     private let backend: String
 
+    /// Display-friendly URL string for UI
+    var currentBaseURL: String {
+        baseURL.absoluteString
+    }
+
     init?(baseURL: String, language: String, sampleRate: Double, transcribeMode: Config.TranscribeMode, backend: String) {
         let cleaned = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard let url = URL(string: cleaned) else {

@@ -273,6 +273,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func onHotkeyPress() {
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.isRecording, !self.isProcessing else { return }
+            // Check if STT client is configured
+            guard self.sttClient != nil else {
+                self.showError("STT 服务未配置，请先在设置中配置服务地址")
+                return
+            }
             // Instant visual feedback BEFORE audio engine init (user sees response in <50ms)
             self.isRecording = true
             self.updateStatusBarIcon(.recording)
