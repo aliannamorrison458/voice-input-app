@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastResultMenuItem: NSMenuItem!
     private var recordStartTime: Date?
     private var durationTimer: Timer?
+    private var settingsWindowController: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Request notification permission
@@ -40,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkey()
         checkSTTService()
         checkAccessibilityPermission()
+
+        settingsWindowController = SettingsWindowController(config: config) { [weak self] newConfig in
+            self?.applyConfig(newConfig)
+        }
     }
 
     // MARK: - Menu Bar
@@ -359,8 +364,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        AppLogger.info("打开配置文件")
-        NSWorkspace.shared.open(Config.configFileURL)
+        AppLogger.info("打开设置窗口")
+        settingsWindowController = SettingsWindowController(config: config) { [weak self] newConfig in
+            self?.applyConfig(newConfig)
+        }
+        settingsWindowController?.showWindow()
+    }
+
+    private func applyConfig(_ newConfig: Config) {
+        config = newConfig
+        Config.save(newConfig)
+        AppLogger.info("配置已更新: STT=\(newConfig.sttUrl), language=\(newConfig.language), mode=\(newConfig.transcribeMode.rawValue)")
+
+        // Recreate recorder if sample rate changed
+        recorder = AudioRecorder(sampleRate: newConfig.sampleRate)
+
+        // Recreate STT client
+        sttClient = STTClient(
+            baseURL: newConfig.sttUrl,
+            language: newConfig.language,
+            sampleRate: newConfig.sampleRate,
+            transcribeMode: newConfig.transcribeMode,
+            backend: newConfig.backend
+        )
+
+        if sttClient == nil {
+            AppLogger.error("STT 客户端初始化失败，URL 无效: \(newConfig.sttUrl)")
+        }
+
+        checkSTTService()
     }
 
     @objc private func openLog() {
