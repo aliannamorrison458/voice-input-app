@@ -9,10 +9,16 @@ final class STTClient {
 
     private let baseURL: URL
     private let language: String
+    private let sampleRate: Double
+    private let transcribeMode: Config.TranscribeMode
+    private let backend: String
 
-    init(baseURL: String, language: String) {
+    init(baseURL: String, language: String, sampleRate: Double, transcribeMode: Config.TranscribeMode, backend: String) {
         self.baseURL = URL(string: baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))!
         self.language = language
+        self.sampleRate = sampleRate
+        self.transcribeMode = transcribeMode
+        self.backend = backend
     }
 
     func healthCheck() async -> HealthCheckResult {
@@ -44,8 +50,55 @@ final class STTClient {
     }
 
     func transcribe(audioData: Data, timeout: TimeInterval = 30) async throws -> String {
-        let url = baseURL.appendingPathComponent("v1/audio/transcriptions")
+        switch transcribeMode {
+        case .file:
+            return try await transcribeByFile(audioData: audioData, timeout: timeout)
+        case .pcm:
+            return try await transcribeByPCM(audioData: audioData, timeout: timeout)
+        case .websocket:
+            return try await transcribeByWebSocket(audioData: audioData)
+        }
+    }
 
+    private func transcribeByFile(audioData: Data, timeout: TimeInterval) async throws -> String {
+        let wav = wavData(from: audioData)
+        return try await transcribeByMultipart(
+            path: "v1/audio/transcriptions",
+            fileName: "audio.wav",
+            mimeType: "audio/wav",
+            fileData: wav,
+            extraFormFields: [
+                ("language", language),
+                ("backend", backend),
+            ],
+            timeout: timeout
+        )
+    }
+
+    private func transcribeByPCM(audioData: Data, timeout: TimeInterval) async throws -> String {
+        return try await transcribeByMultipart(
+            path: "v1/transcribe/pcm",
+            fileName: "audio.pcm",
+            mimeType: "application/octet-stream",
+            fileData: audioData,
+            extraFormFields: [
+                ("sample_rate", String(Int(sampleRate))),
+                ("language", language),
+                ("backend", backend),
+            ],
+            timeout: timeout
+        )
+    }
+
+    private func transcribeByMultipart(
+        path: String,
+        fileName: String,
+        mimeType: String,
+        fileData: Data,
+        extraFormFields: [(String, String)],
+        timeout: TimeInterval
+    ) async throws -> String {
+        let url = baseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = timeout
@@ -54,22 +107,20 @@ final class STTClient {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         var body = Data()
-
-        // File field
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
-        body.append(wavData(from: audioData))
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
         body.append("\r\n".data(using: .utf8)!)
 
-        // Language field
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
-        body.append(language.data(using: .utf8)!)
-        body.append("\r\n".data(using: .utf8)!)
+        for (key, value) in extraFormFields {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+            body.append(value.data(using: .utf8)!)
+            body.append("\r\n".data(using: .utf8)!)
+        }
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-
         request.httpBody = body
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -83,6 +134,60 @@ final class STTClient {
             throw STTError.noTextInResponse
         }
         return text
+    }
+
+    private func transcribeByWebSocket(audioData: Data) async throws -> String {
+        let wsURL = websocketURL().appendingPathComponent("v1/stream")
+        let task = URLSession.shared.webSocketTask(with: wsURL)
+        task.resume()
+        defer {
+            task.cancel(with: .normalClosure, reason: nil)
+        }
+
+        let config: [String: Any] = [
+            "action": "config",
+            "language": language,
+            "sample_rate": Int(sampleRate),
+            "backend": backend,
+        ]
+        let configData = try JSONSerialization.data(withJSONObject: config)
+        try await task.send(.string(String(data: configData, encoding: .utf8) ?? "{}"))
+        try await task.send(.data(audioData))
+        try await task.send(.string("{\"action\":\"end\"}"))
+
+        while true {
+            let message = try await task.receive()
+            switch message {
+            case .string(let text):
+                if let finalText = parseFinalText(from: text) {
+                    return finalText
+                }
+            case .data(let data):
+                if let text = String(data: data, encoding: .utf8),
+                   let finalText = parseFinalText(from: text) {
+                    return finalText
+                }
+            @unknown default:
+                continue
+            }
+        }
+    }
+
+    private func parseFinalText(from message: String) -> String? {
+        guard let data = message.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String,
+              type == "final",
+              let text = json["text"] as? String else {
+            return nil
+        }
+        return text
+    }
+
+    private func websocketURL() -> URL {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        components.scheme = components.scheme == "https" ? "wss" : "ws"
+        return components.url!
     }
 
     /// Wrap raw PCM data in a WAV container.

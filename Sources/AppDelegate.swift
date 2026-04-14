@@ -17,8 +17,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         config = Config.load()
         recorder = AudioRecorder(sampleRate: config.sampleRate)
-        sttClient = STTClient(baseURL: config.sttUrl, language: config.language)
-        AppLogger.info("应用启动, STT=\(config.sttUrl), language=\(config.language), sampleRate=\(Int(config.sampleRate))")
+        sttClient = STTClient(
+            baseURL: config.sttUrl,
+            language: config.language,
+            sampleRate: config.sampleRate,
+            transcribeMode: config.transcribeMode,
+            backend: config.backend
+        )
+        AppLogger.info("应用启动, STT=\(config.sttUrl), language=\(config.language), sampleRate=\(Int(config.sampleRate)), mode=\(config.transcribeMode.rawValue), backend=\(config.backend)")
 
         setupMenu()
         setupHotkey()
