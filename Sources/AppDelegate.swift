@@ -363,7 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.durationTimer = nil
                 self.recordStartTime = nil
                 self.updateStatusBarIcon(.error)
-                self.recordMenuItem.title = "🎙️ 开始录音 (Fn)"
+                self.recordMenuItem.title = "🎙️ 开始录音"
                 let userMessage = self.userFriendlyErrorMessage(error)
                 AppLogger.error("录音启动失败: \(error.localizedDescription)")
                 self.showError(userMessage)
@@ -434,6 +434,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         } else {
                             AppLogger.info("识别成功, 文本长度=\(text.count)")
                         }
+                        self.flashSuccess()
                         self.showNotification("✅ 识别完成", body: String(text.prefix(50)))
                     } else {
                         AppLogger.warn("识别成功但返回空文本")
@@ -460,8 +461,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isRecording = false
         isProcessing = false
         updateStatusBarIcon(.idle)
-        recordMenuItem.title = "🎙️ 开始录音 (Fn)"
-        statusMenuItem.title = "✅ STT 服务在线"
+        recordMenuItem.title = "🎙️ 开始录音"
+        statusMenuItem.title = "✅ STT 服务在线" + (sttClient.map { " (\($0.currentBaseURL))" } ?? "")
+    }
+
+    /// Brief success flash to acknowledge completion
+    private func flashSuccess() {
+        statusItem.button?.title = "✅"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self, !self.isRecording, !self.isProcessing else { return }
+            self.updateStatusBarIcon(.idle)
+        }
     }
 
     // MARK: - User-Friendly Error Messages
