@@ -170,6 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Pulse animation for recording state
     private var pulseTimer: Timer?
     private var pulseState = false
+    private var processingFrames = ["⏳", "⌛"]
 
     private func updateStatusBarIcon(_ state: StatusBarState) {
         // Stop any running animation
@@ -189,9 +190,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Start pulse animation
             startPulseAnimation()
         case .processing:
-            statusItem.button?.title = "⏳"
             statusItem.button?.toolTip = "正在识别中…\n请稍候"
             statusItem.button?.alphaValue = 1.0
+            // Start hourglass flip animation
+            startProcessingAnimation()
         case .error:
             statusItem.button?.title = "⚠️"
             statusItem.button?.toolTip = "出现问题\n点击菜单查看详情或重试"
@@ -215,6 +217,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 self.statusItem.button?.animator().alphaValue = self.pulseState ? 1.0 : 0.3
             }
+        }
+    }
+
+    private var processingFrameIndex = 0
+
+    private func startProcessingAnimation() {
+        pulseTimer?.invalidate()
+        processingFrameIndex = 0
+        statusItem.button?.title = processingFrames[0]
+        pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
+            guard let self, self.isProcessing else {
+                self?.pulseTimer?.invalidate()
+                self?.pulseTimer = nil
+                return
+            }
+            self.processingFrameIndex = (self.processingFrameIndex + 1) % self.processingFrames.count
+            self.statusItem.button?.title = self.processingFrames[self.processingFrameIndex]
         }
     }
 
