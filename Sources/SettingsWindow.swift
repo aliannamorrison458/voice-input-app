@@ -187,7 +187,22 @@ final class SettingsWindowController {
     }
 
     func showWindow() {
+        // Refresh model with current config each time settings is opened
+        self.model = SettingsModel(config: currentConfig)
+
         if let window = window {
+            // Update existing window's content
+            let settingsView = SettingsView(
+                model: model,
+                onSave: { [weak self] newConfig in
+                    self?.onConfigChanged(newConfig)
+                    self?.window?.close()
+                },
+                onCancel: { [weak self] in
+                    self?.window?.close()
+                }
+            )
+            window.contentView = NSHostingView(rootView: settingsView)
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -206,7 +221,7 @@ final class SettingsWindowController {
 
         let hostingView = NSHostingView(rootView: settingsView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 440),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
