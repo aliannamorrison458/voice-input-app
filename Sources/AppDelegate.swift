@@ -374,20 +374,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         durationTimer?.invalidate()
         durationTimer = nil
 
+        // Immediately show processing state - don't wait for audio stop
+        isRecording = false
+        isProcessing = true
+        updateStatusBarIcon(.processing)
+        statusMenuItem.title = "⏳ 正在转写..."
+        recordMenuItem.title = "⏳ 转写中..."
+        if config.soundEffect { SoundEffect.play(.stop) }
+
         guard let sttClient else {
-            isRecording = false
+            isProcessing = false
             recordStartTime = nil
             resetUI()
             showError("STT 服务未配置，请在设置中检查服务地址")
             return
         }
         guard let audioData = recorder.stop() else {
-            isRecording = false
+            isProcessing = false
             recordStartTime = nil
-            statusItem.button?.title = "🎤"
-            updateStatusBarIcon(.idle)
-            recordMenuItem.title = "🎙️ 开始录音 (Fn)"
-            statusMenuItem.title = "✅ STT 服务在线"
+            resetUI()
             AppLogger.warn("停止录音后没有采集到音频数据")
             showError("录音时间太短，请按住 Fn 键后说话再松开")
             return
@@ -396,7 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Check minimum recording duration (0.5s = 16000 * 2 * 0.5 = 16000 bytes)
         let minBytes = Int(config.sampleRate) * 2 / 2 // 0.5 seconds
         if audioData.count < minBytes {
-            isRecording = false
+            isProcessing = false
             recordStartTime = nil
             resetUI()
             showError("录音时间太短（不足 0.5 秒），请按住 Fn 键后说话再松开")
@@ -407,13 +412,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let duration = recordStartTime.map { Date().timeIntervalSince($0) } ?? 0
         recordStartTime = nil
         AppLogger.info("停止录音, 采集字节数=\(audioData.count), 时长=\(String(format: "%.1f", duration))s")
-
-        isRecording = false
-        isProcessing = true
-        updateStatusBarIcon(.processing)
-        statusMenuItem.title = "⏳ 正在识别..."
-        recordMenuItem.title = "⏳ 识别中..."
-        if config.soundEffect { SoundEffect.play(.stop) }
 
         Task {
             do {
