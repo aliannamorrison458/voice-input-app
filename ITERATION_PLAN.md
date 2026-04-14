@@ -59,3 +59,9 @@
 - 录音状态设置从 startRecording() 拆分到 onHotkeyPress()，实现"按键即响应"
 - toggleRecord() 菜单操作复用 onHotkeyPress() 确保一致体验
 - 错误处理增加 DispatchQueue.main.async 包装，保证 UI 操作在主线程
+
+### 打磨3: UX-3 错误与恢复 (2026-04-15)
+- 磁盘空间监控: 启动时 + 每60秒检查，<100MB 时警告用户
+- 辅助功能权限实时检测: 每60秒检查权限是否被撤回，变化时立即通知
+- 定期健康检查定时器 (healthCheckTimer) 正确生命周期管理
+- 所有定时器在 quitApp 中统一清理

@@ -51,6 +51,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Periodic health checks: disk + accessibility every 60s
         startPeriodicHealthChecks()
+
+        // First-launch onboarding
+        showOnboardingIfNeeded()
+    }
+
+    private func showOnboardingIfNeeded() {
+        let key = "VoiceInput.hasShownOnboarding"
+        if !UserDefaults.standard.bool(forKey: key) {
+            UserDefaults.standard.set(true, forKey: key)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                self.showNotification(
+                    "👋 欢迎使用 VoiceInput",
+                    body: "按住 Fn 键开始说话，松开自动识别。点击菜单栏 🎤 图标查看更多功能。"
+                )
+            }
+        }
     }
 
     private var healthCheckTimer: Timer?
@@ -124,6 +140,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchItem.target = self
         launchItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(launchItem)
+
+        // Help section
+        let helpItem = NSMenuItem(title: "❓ 使用帮助", action: #selector(showHelp), keyEquivalent: "?")
+        helpItem.target = self
+        menu.addItem(helpItem)
 
         // Version info
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版"
@@ -470,6 +491,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.applyConfig(newConfig)
         }
         settingsWindowController?.showWindow()
+    }
+
+    @objc private func showHelp() {
+        let alert = NSAlert()
+        alert.messageText = "VoiceInput 使用帮助"
+        alert.informativeText = """
+        基本操作:
+        • 按住 Fn 键开始录音，松开停止并识别
+        • 也可点击菜单栏图标 → 开始录音
+
+        功能说明:
+        • 自动粘贴: 识别结果直接输入到当前光标位置
+        • 录音音效: 开始/结束时播放提示音
+        • 开机自启动: 系统登录时自动运行
+
+        快捷键:
+        • Fn - 按住录音/松开识别
+        • Cmd+Q - 退出应用
+
+        更多设置请打开「设置...」菜单项。
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "知道了")
+        alert.runModal()
     }
 
     private func applyConfig(_ newConfig: Config) {
