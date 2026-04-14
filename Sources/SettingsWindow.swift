@@ -177,7 +177,7 @@ final class SettingsModel: ObservableObject {
 final class SettingsWindowController {
     private var window: NSWindow?
     private var model: SettingsModel
-    private let currentConfig: Config
+    private var currentConfig: Config
     private let onConfigChanged: (Config) -> Void
 
     init(config: Config, onConfigChanged: @escaping (Config) -> Void) {
@@ -195,6 +195,7 @@ final class SettingsWindowController {
             let settingsView = SettingsView(
                 model: model,
                 onSave: { [weak self] newConfig in
+                    self?.currentConfig = newConfig
                     self?.onConfigChanged(newConfig)
                     self?.window?.close()
                 },
@@ -211,6 +212,7 @@ final class SettingsWindowController {
         let settingsView = SettingsView(
             model: model,
             onSave: { [weak self] newConfig in
+                self?.currentConfig = newConfig
                 self?.onConfigChanged(newConfig)
                 self?.window?.close()
             },
