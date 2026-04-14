@@ -3,6 +3,7 @@ import AVFoundation
 import CoreAudio
 import UserNotifications
 import ServiceManagement
+import QuartzCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -104,20 +105,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case idle, recording, processing, error
     }
 
+    // Pulse animation for recording state
+    private var pulseTimer: Timer?
+    private var pulseState = false
+
     private func updateStatusBarIcon(_ state: StatusBarState) {
+        // Stop any running animation
+        pulseTimer?.invalidate()
+        pulseTimer = nil
+        pulseState = false
+
         switch state {
         case .idle:
             statusItem.button?.title = "🎤"
-            statusItem.button?.toolTip = "VoiceInput - 空闲"
+            statusItem.button?.toolTip = "VoiceInput 就绪\n按住 Fn 键开始录音\n点击菜单查看更多选项"
+            statusItem.button?.alphaValue = 1.0
         case .recording:
             statusItem.button?.title = "🔴"
-            statusItem.button?.toolTip = "VoiceInput - 正在录音..."
+            statusItem.button?.toolTip = "正在录音中…\n松开 Fn 键停止并识别"
+            statusItem.button?.alphaValue = 1.0
+            // Start pulse animation
+            startPulseAnimation()
         case .processing:
             statusItem.button?.title = "⏳"
-            statusItem.button?.toolTip = "VoiceInput - 正在识别..."
+            statusItem.button?.toolTip = "正在识别中…\n请稍候"
+            statusItem.button?.alphaValue = 1.0
         case .error:
             statusItem.button?.title = "⚠️"
-            statusItem.button?.toolTip = "VoiceInput - 出现错误"
+            statusItem.button?.toolTip = "出现问题\n点击菜单查看详情或重试"
+            statusItem.button?.alphaValue = 1.0
+        }
+    }
+
+    private func startPulseAnimation() {
+        pulseTimer?.invalidate()
+        pulseState = true
+        pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self, self.isRecording else {
+                self?.pulseTimer?.invalidate()
+                self?.pulseTimer = nil
+                self?.statusItem.button?.alphaValue = 1.0
+                return
+            }
+            self.pulseState.toggle()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.4
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.statusItem.button?.animator().alphaValue = self.pulseState ? 1.0 : 0.3
+            }
         }
     }
 
@@ -453,6 +488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quitApp() {
         AppLogger.info("应用退出")
         durationTimer?.invalidate()
+        pulseTimer?.invalidate()
         hotkeyMonitor.stop()
         NSApp.terminate(nil)
     }
