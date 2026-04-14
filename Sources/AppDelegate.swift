@@ -438,7 +438,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.showNotification("✅ 识别完成", body: String(text.prefix(50)))
                     } else {
                         AppLogger.warn("识别成功但返回空文本")
-                        self.showError("识别结果为空，请再试一次")
+                        // Non-alarming: show icon hint instead of notification
+                        self.statusItem.button?.title = "🤷"
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                            guard let self, !self.isRecording, !self.isProcessing else { return }
+                            self.updateStatusBarIcon(.idle)
+                        }
+                        self.statusMenuItem.title = "🤷 没有识别到文字，可以重试"
                     }
                     self.resetUI()
                 }
