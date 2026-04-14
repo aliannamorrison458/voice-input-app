@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         config = Config.load()
         recorder = AudioRecorder(sampleRate: config.sampleRate)
         sttClient = STTClient(baseURL: config.sttUrl, language: config.language)
+        AppLogger.info("应用启动, STT=\(config.sttUrl), language=\(config.language), sampleRate=\(Int(config.sampleRate))")
 
         setupMenu()
         setupHotkey()
@@ -93,9 +94,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func checkSTTService() {
         Task {
-            let ok = await sttClient.healthCheck()
+            let result = await sttClient.healthCheck()
             await MainActor.run {
-                statusMenuItem.title = ok ? "✅ STT 服务在线" : "❌ STT 服务离线"
+                statusMenuItem.title = result.isOnline ? "✅ STT 服务在线" : "❌ STT 服务离线"
+            }
+            if result.isOnline {
+                AppLogger.info("服务健康检查: online (\(result.reason))")
+            } else {
+                AppLogger.warn("服务健康检查: offline, 原因: \(result.reason)")
             }
         }
     }
@@ -106,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isRecording = true
         statusItem.button?.title = "🔴"
         recordMenuItem.title = "⏹️ 停止录音"
+        AppLogger.info("开始录音")
 
         do {
             try recorder.start()
@@ -114,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isRecording = false
             statusItem.button?.title = "🎤"
             recordMenuItem.title = "🎙️ 开始录音 (Fn)"
+            AppLogger.error("录音启动失败: \(error.localizedDescription)")
             showError("录音启动失败: \(error.localizedDescription)")
         }
     }
@@ -123,8 +131,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isRecording = false
             statusItem.button?.title = "🎤"
             recordMenuItem.title = "🎙️ 开始录音 (Fn)"
+            AppLogger.warn("停止录音后没有采集到音频数据")
             return
         }
+        AppLogger.info("停止录音, 采集字节数=\(audioData.count)")
 
         isRecording = false
         isProcessing = true
@@ -140,13 +150,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.lastText = text
                         if self.config.autoPaste {
                             TextInjector.inject(text)
+                            AppLogger.info("识别成功并自动粘贴, 文本长度=\(text.count)")
+                        } else {
+                            AppLogger.info("识别成功, 文本长度=\(text.count)")
                         }
                         self.showNotification("✅ 识别完成", body: String(text.prefix(50)))
+                    } else {
+                        AppLogger.warn("识别成功但返回空文本")
                     }
                     self.resetUI()
                 }
             } catch {
                 await MainActor.run {
+                    AppLogger.error("识别失败: \(error.localizedDescription)")
                     self.showError("识别失败: \(error.localizedDescription)")
                     self.resetUI()
                 }
@@ -178,17 +194,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
+        AppLogger.info("打开配置文件")
         NSWorkspace.shared.open(Config.configFileURL)
     }
 
     @objc private func openLog() {
         let logURL = Config.configDirURL.appendingPathComponent("log.txt")
-        if FileManager.default.fileExists(atPath: logURL.path) {
-            NSWorkspace.shared.open(logURL)
+        let fileManager = FileManager.default
+
+        do {
+            try fileManager.createDirectory(at: Config.configDirURL, withIntermediateDirectories: true)
+
+            if !fileManager.fileExists(atPath: logURL.path) {
+                fileManager.createFile(atPath: logURL.path, contents: Data(), attributes: nil)
+            }
+
+            if !NSWorkspace.shared.open(logURL) {
+                AppLogger.error("无法打开日志文件: \(logURL.path)")
+                showError("无法打开日志文件: \(logURL.path)")
+            } else {
+                AppLogger.info("打开日志文件")
+            }
+        } catch {
+            AppLogger.error("准备日志文件失败: \(error.localizedDescription)")
+            showError("准备日志文件失败: \(error.localizedDescription)")
         }
     }
 
     @objc private func quitApp() {
+        AppLogger.info("应用退出")
         hotkeyMonitor.stop()
         NSApp.terminate(nil)
     }
@@ -196,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Helpers
 
     private func showError(_ message: String) {
+        AppLogger.error(message)
         showNotification("错误", body: message)
     }
 

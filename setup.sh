@@ -35,6 +35,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>VoiceInput 需要麦克风权限来进行语音识别</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <!-- STT 服务默认使用内网 HTTP 地址，允许明文连接 -->
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
 EOF

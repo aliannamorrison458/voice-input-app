@@ -2,6 +2,11 @@ import Foundation
 
 /// HTTP client for the STT service (OpenAI-compatible /v1/audio/transcriptions).
 final class STTClient {
+    struct HealthCheckResult {
+        let isOnline: Bool
+        let reason: String
+    }
+
     private let baseURL: URL
     private let language: String
 
@@ -10,14 +15,31 @@ final class STTClient {
         self.language = language
     }
 
-    func healthCheck() async -> Bool {
+    func healthCheck() async -> HealthCheckResult {
         let url = baseURL.appendingPathComponent("health")
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse else {
+                return HealthCheckResult(isOnline: false, reason: "响应不是 HTTP")
+            }
+
+            guard (200...299).contains(http.statusCode) else {
+                let body = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let suffix = body.isEmpty ? "" : " body=\(body.prefix(120))"
+                return HealthCheckResult(isOnline: false, reason: "HTTP \(http.statusCode)\(suffix)")
+            }
+
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            return json?["status"] as? String == "ok"
+            if json?["status"] as? String == "ok" {
+                return HealthCheckResult(isOnline: true, reason: "status=ok")
+            }
+
+            let status = json?["status"] as? String ?? "missing"
+            return HealthCheckResult(isOnline: false, reason: "status=\(status)")
+        } catch let error as URLError {
+            return HealthCheckResult(isOnline: false, reason: "网络错误(\(error.code.rawValue)): \(error.localizedDescription)")
         } catch {
-            return false
+            return HealthCheckResult(isOnline: false, reason: error.localizedDescription)
         }
     }
 
