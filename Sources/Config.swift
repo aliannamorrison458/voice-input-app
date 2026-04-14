@@ -52,23 +52,38 @@ struct Config: Codable {
     )
 
     static func load() -> Config {
-        try? FileManager.default.createDirectory(at: configDirURL, withIntermediateDirectories: true)
-        guard let data = try? Data(contentsOf: configFileURL),
-              var cfg = try? JSONDecoder().decode(Config.self, from: data) else {
+        do {
+            try FileManager.default.createDirectory(at: configDirURL, withIntermediateDirectories: true)
+        } catch {
+            AppLogger.error("创建配置目录失败: \(error.localizedDescription)")
             save(Config.default)
             return Config.default
         }
-        // Fill defaults for missing keys
-        if cfg.sttUrl.isEmpty { cfg.sttUrl = Config.default.sttUrl }
-        if cfg.language.isEmpty { cfg.language = Config.default.language }
-        if cfg.backend.isEmpty { cfg.backend = Config.default.backend }
-        return cfg
+        guard let data = try? Data(contentsOf: configFileURL) else {
+            AppLogger.info("配置文件不存在，使用默认配置")
+            save(Config.default)
+            return Config.default
+        }
+        do {
+            var cfg = try JSONDecoder().decode(Config.self, from: data)
+            if cfg.sttUrl.isEmpty { cfg.sttUrl = Config.default.sttUrl }
+            if cfg.language.isEmpty { cfg.language = Config.default.language }
+            if cfg.backend.isEmpty { cfg.backend = Config.default.backend }
+            return cfg
+        } catch {
+            AppLogger.error("配置文件解析失败: \(error.localizedDescription)，使用默认配置")
+            save(Config.default)
+            return Config.default
+        }
     }
 
     static func save(_ config: Config) {
-        try? FileManager.default.createDirectory(at: configDirURL, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(config) {
-            try? data.write(to: configFileURL, options: .atomic)
+        do {
+            try FileManager.default.createDirectory(at: configDirURL, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(config)
+            try data.write(to: configFileURL, options: .atomic)
+        } catch {
+            AppLogger.error("保存配置失败: \(error.localizedDescription)")
         }
     }
 

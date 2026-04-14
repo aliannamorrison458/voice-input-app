@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import CoreAudio
 import UserNotifications
+import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -76,6 +77,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let logItem = NSMenuItem(title: "📝 查看日志", action: #selector(openLog), keyEquivalent: "")
         logItem.target = self
         menu.addItem(logItem)
+
+        let launchItem = NSMenuItem(title: "🚀 开机自启动", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        launchItem.target = self
+        launchItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(launchItem)
+
+        // Version info
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        let versionString = build.isEmpty ? version : "\(version) (\(build))"
+        let versionItem = NSMenuItem(title: "ℹ️ VoiceInput v\(versionString)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "❌ 退出", action: #selector(quitApp), keyEquivalent: "q")
@@ -415,6 +430,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             AppLogger.error("准备日志文件失败: \(error.localizedDescription)")
             showError("无法打开日志文件")
+        }
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        if SMAppService.mainApp.status == .enabled {
+            try? SMAppService.mainApp.unregister()
+            sender.state = .off
+            AppLogger.info("已关闭开机自启动")
+        } else {
+            do {
+                try SMAppService.mainApp.register()
+                sender.state = .on
+                AppLogger.info("已开启开机自启动")
+            } catch {
+                AppLogger.error("开启开机自启动失败: \(error.localizedDescription)")
+                showError("无法开启开机自启动，请检查系统设置")
+            }
         }
     }
 

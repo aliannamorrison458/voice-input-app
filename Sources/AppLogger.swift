@@ -8,8 +8,15 @@ enum AppLogger {
         return formatter
     }()
 
+    /// Max log file size before rotation (5 MB)
+    private static let maxLogSize: UInt64 = 5 * 1024 * 1024
+
     private static var logFileURL: URL {
         Config.configDirURL.appendingPathComponent("log.txt")
+    }
+
+    private static var logFileBackupURL: URL {
+        Config.configDirURL.appendingPathComponent("log.old.txt")
     }
 
     static func info(_ message: String) {
@@ -28,6 +35,10 @@ enum AppLogger {
         queue.async {
             do {
                 try FileManager.default.createDirectory(at: Config.configDirURL, withIntermediateDirectories: true)
+
+                // Rotate if file is too large
+                rotateIfNeeded()
+
                 if !FileManager.default.fileExists(atPath: logFileURL.path) {
                     FileManager.default.createFile(atPath: logFileURL.path, contents: Data(), attributes: nil)
                 }
@@ -43,5 +54,20 @@ enum AppLogger {
                 // Avoid recursive logging loops.
             }
         }
+    }
+
+    private static func rotateIfNeeded() {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: logFileURL.path),
+              let fileSize = attrs[.size] as? UInt64,
+              fileSize > maxLogSize else { return }
+
+        let fm = FileManager.default
+        // Remove old backup if exists
+        if fm.fileExists(atPath: logFileBackupURL.path) {
+            try? fm.removeItem(at: logFileBackupURL)
+        }
+        // Move current log to backup
+        try? fm.moveItem(at: logFileURL, to: logFileBackupURL)
+        AppLogger.info("日志已轮转，旧日志保存为 log.old.txt")
     }
 }

@@ -29,7 +29,9 @@ final class STTClient {
     func healthCheck() async -> HealthCheckResult {
         let url = baseURL.appendingPathComponent("health")
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 5 // 5 second timeout for health check
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 return HealthCheckResult(isOnline: false, reason: "响应不是 HTTP")
             }
@@ -47,6 +49,8 @@ final class STTClient {
 
             let status = json?["status"] as? String ?? "missing"
             return HealthCheckResult(isOnline: false, reason: "status=\(status)")
+        } catch let error as URLError where error.code == .timedOut {
+            return HealthCheckResult(isOnline: false, reason: "健康检查超时 (>5s)")
         } catch let error as URLError {
             return HealthCheckResult(isOnline: false, reason: "网络错误(\(error.code.rawValue)): \(error.localizedDescription)")
         } catch {
@@ -54,15 +58,30 @@ final class STTClient {
         }
     }
 
-    func transcribe(audioData: Data, timeout: TimeInterval = 30) async throws -> String {
-        switch transcribeMode {
-        case .file:
-            return try await transcribeByFile(audioData: audioData, timeout: timeout)
-        case .pcm:
-            return try await transcribeByPCM(audioData: audioData, timeout: timeout)
-        case .websocket:
-            return try await transcribeByWebSocket(audioData: audioData)
+    func transcribe(audioData: Data, timeout: TimeInterval = 30, retries: Int = 2) async throws -> String {
+        var lastError: Error?
+        for attempt in 0...retries {
+            if attempt > 0 {
+                AppLogger.info("STT 重试第 \(attempt) 次")
+                try await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000) // 1s delay between retries
+            }
+            do {
+                switch transcribeMode {
+                case .file:
+                    return try await transcribeByFile(audioData: audioData, timeout: timeout)
+                case .pcm:
+                    return try await transcribeByPCM(audioData: audioData, timeout: timeout)
+                case .websocket:
+                    return try await transcribeByWebSocket(audioData: audioData)
+                }
+            } catch {
+                lastError = error
+                let isRetryable = error is URLError
+                if !isRetryable { throw error }
+                AppLogger.warn("STT 请求失败 (尝试 \(attempt + 1)/\(retries + 1)): \(error.localizedDescription)")
+            }
         }
+        throw lastError ?? STTError.noTextInResponse
     }
 
     private func transcribeByFile(audioData: Data, timeout: TimeInterval) async throws -> String {
