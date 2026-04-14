@@ -118,12 +118,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(statusMenuItem)
         menu.addItem(.separator())
 
-        recordMenuItem = NSMenuItem(title: "🎙️ 开始录音 (Fn)", action: #selector(toggleRecord), keyEquivalent: "")
+        recordMenuItem = NSMenuItem(title: "🎙️ 开始录音", action: #selector(toggleRecord), keyEquivalent: "")
         recordMenuItem.target = self
+        recordMenuItem.toolTip = "按住 Fn 键快速开始录音"
         menu.addItem(recordMenuItem)
 
-        lastResultMenuItem = NSMenuItem(title: "📋 粘贴上次结果", action: #selector(pasteLast), keyEquivalent: "")
+        lastResultMenuItem = NSMenuItem(title: "📋 粘贴上次结果", action: #selector(pasteLast), keyEquivalent: "v")
         lastResultMenuItem.target = self
+        lastResultMenuItem.toolTip = "将上次识别的文字粘贴到当前光标位置"
         lastResultMenuItem.isEnabled = false
         menu.addItem(lastResultMenuItem)
         menu.addItem(.separator())
