@@ -192,7 +192,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func onHotkeyPress() {
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.isRecording, !self.isProcessing else { return }
-            self.startRecording()
+            // Instant visual feedback BEFORE audio engine init (user sees response in <50ms)
+            self.isRecording = true
+            self.updateStatusBarIcon(.recording)
+            self.recordStartTime = Date()
+            self.recordMenuItem.title = "⏹️ 停止录音"
+            self.statusMenuItem.title = "🔴 准备中..."
+
+            // Start duration timer immediately
+            self.durationTimer?.invalidate()
+            self.durationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                guard let self, let start = self.recordStartTime else { return }
+                let duration = Date().timeIntervalSince(start)
+                let seconds = Int(duration)
+                self.statusMenuItem.title = "🔴 正在录音 \(seconds)s"
+            }
+
+            // Audio init on background to not block UI
+            DispatchQueue.global(qos: .userInteractive).async {
+                self.initiateRecording()
+            }
         }
     }
 
@@ -241,41 +260,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Recording
 
-    private func startRecording() {
-        isRecording = true
-        updateStatusBarIcon(.recording)
-        recordStartTime = Date()
-        recordMenuItem.title = "⏹️ 停止录音"
-        statusMenuItem.title = "🔴 正在录音..."
+    private func initiateRecording() {
         AppLogger.info("开始录音")
-
-        // Start duration timer
-        durationTimer?.invalidate()
-        durationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            guard let self, let start = self.recordStartTime else { return }
-            let duration = Date().timeIntervalSince(start)
-            let seconds = Int(duration)
-            self.statusMenuItem.title = "🔴 正在录音 \(seconds)s"
-        }
-
         do {
             try recorder.start()
-            if config.soundEffect { SoundEffect.play(.start) }
+            DispatchQueue.main.async {
+                if self.config.soundEffect { SoundEffect.play(.start) }
+                self.statusMenuItem.title = "🔴 正在录音 0s"
+            }
         } catch {
-            isRecording = false
-            durationTimer?.invalidate()
-            durationTimer = nil
-            recordStartTime = nil
-            updateStatusBarIcon(.error)
-            recordMenuItem.title = "🎙️ 开始录音 (Fn)"
-            let userMessage = userFriendlyErrorMessage(error)
-            AppLogger.error("录音启动失败: \(error.localizedDescription)")
-            showError(userMessage)
-            // Recovery after error
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                guard let self, !self.isRecording, !self.isProcessing else { return }
-                self.updateStatusBarIcon(.idle)
-                self.checkSTTService()
+            DispatchQueue.main.async {
+                self.isRecording = false
+                self.durationTimer?.invalidate()
+                self.durationTimer = nil
+                self.recordStartTime = nil
+                self.updateStatusBarIcon(.error)
+                self.recordMenuItem.title = "🎙️ 开始录音 (Fn)"
+                let userMessage = self.userFriendlyErrorMessage(error)
+                AppLogger.error("录音启动失败: \(error.localizedDescription)")
+                self.showError(userMessage)
+                // Recovery after error
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                    guard let self, !self.isRecording, !self.isProcessing else { return }
+                    self.updateStatusBarIcon(.idle)
+                    self.checkSTTService()
+                }
             }
         }
     }
@@ -403,7 +412,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isRecording {
             stopRecordingAndTranscribe()
         } else if !isProcessing {
-            startRecording()
+            // Same instant-feedback path as hotkey
+            onHotkeyPress()
         }
     }
 

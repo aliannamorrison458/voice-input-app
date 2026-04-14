@@ -40,3 +40,15 @@
 ## 迭代节奏
 每轮 ~10 分钟，按 P0 → P1 → P2 → P3 顺序推进
 每轮结束编译验证 + git commit
+
+## 深度打磨阶段 (UX 精修)
+
+### 打磨1: UX-1 视觉与动效 (2026-04-15)
+- 录音中菜单栏图标脉冲呼吸灯动画 (alphaValue 0.3-1.0, 0.5s 间隔)
+- 所有 tooltip 改为多行富信息格式:
+  - idle: "VoiceInput 就绪\n按住 Fn 键开始录音\n点击菜单查看更多选项"
+  - recording: "正在录音中…\n松开 Fn 键停止并识别"
+  - processing: "正在识别中…\n请稍候"
+  - error: "出现问题\n点击菜单查看详情或重试"
+- 引入 QuartzCore import 实现 NSAnimationContext 渐变效果
+- 动画停止时正确清理 Timer 并恢复 alphaValue=1.0
