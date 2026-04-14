@@ -11,11 +11,11 @@ enum TextInjector {
             AppLogger.error("辅助功能权限未授权，无法注入文字")
             DispatchQueue.main.async {
                 let alert = NSAlert()
-                alert.messageText = "需要辅助功能权限"
-                alert.informativeText = "VoiceInput 需要辅助功能权限才能将文字输入到其他应用。\n\n请在「系统设置 → 隐私与安全 → 辅助功能」中启用 VoiceInput。"
+                alert.messageText = "无法粘贴文字"
+                alert.informativeText = "VoiceInput 需要辅助功能权限才能将文字输入到其他应用。\n\n请在「系统设置 → 隐私与安全 → 辅助功能」中启用 VoiceInput，然后重新识别。\n\n识别结果已保存，可通过菜单栏「📋 粘贴上次结果」手动粘贴。"
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "打开系统设置")
-                alert.addButton(withTitle: "取消")
+                alert.addButton(withTitle: "稍后设置")
                 if alert.runModal() == .alertFirstButtonReturn {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
                 }
