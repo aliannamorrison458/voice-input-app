@@ -6,12 +6,12 @@
 ## Issue 清单
 
 ### P0 — 崩溃/数据丢失
-- [ ] STTClient.init `URL(string:)` force unwrap → 崩溃
-- [ ] STTClient `websocketURL()` force unwrap → 崩溃
-- [ ] TextInjector `Thread.sleep` 阻塞主线程 → UI 冻结
-- [ ] wavData 硬编码 16000 sampleRate → 与 Config 脱节
-- [ ] AudioRecorder permission `DispatchSemaphore` 阻塞主线程
-- [ ] audioBuffer 无大小限制 → 内存爆
+- [x] STTClient.init `URL(string:)` force unwrap → 崩溃
+- [x] STTClient `websocketURL()` force unwrap → 崩溃
+- [x] TextInjector `Thread.sleep` 阻塞主线程 → UI 冻结
+- [x] wavData 硬编码 16000 sampleRate → 与 Config 脱节
+- [x] AudioRecorder permission `DispatchSemaphore` 阻塞主线程
+- [x] audioBuffer 无大小限制 → 内存爆
 
 ### P1 — 用户体验缺陷
 - [x] NSUserNotification 已弃用 → macOS 14+ 不显示通知
