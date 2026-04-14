@@ -1,11 +1,12 @@
 import AppKit
 import AVFoundation
 import CoreAudio
+import UserNotifications
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var recorder: AudioRecorder!
-    private var sttClient: STTClient!
+    private var sttClient: STTClient?
     private var hotkeyMonitor: HotkeyMonitor!
     private var config: Config!
     private var isRecording = false
@@ -13,8 +14,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastText = ""
     private var statusMenuItem: NSMenuItem!
     private var recordMenuItem: NSMenuItem!
+    private var lastResultMenuItem: NSMenuItem!
+    private var recordStartTime: Date?
+    private var durationTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Request notification permission
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+
         config = Config.load()
         recorder = AudioRecorder(sampleRate: config.sampleRate)
         sttClient = STTClient(
@@ -32,13 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenu()
         setupHotkey()
         checkSTTService()
+        checkAccessibilityPermission()
     }
 
     // MARK: - Menu Bar
 
     private func setupMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "🎤"
+        updateStatusBarIcon(.idle)
 
         let menu = NSMenu()
 
@@ -50,9 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         recordMenuItem.target = self
         menu.addItem(recordMenuItem)
 
-        let pasteItem = NSMenuItem(title: "📋 粘贴上次结果", action: #selector(pasteLast), keyEquivalent: "")
-        pasteItem.target = self
-        menu.addItem(pasteItem)
+        lastResultMenuItem = NSMenuItem(title: "📋 粘贴上次结果", action: #selector(pasteLast), keyEquivalent: "")
+        lastResultMenuItem.target = self
+        lastResultMenuItem.isEnabled = false
+        menu.addItem(lastResultMenuItem)
         menu.addItem(.separator())
 
         let settingsItem = NSMenuItem(title: "⚙️ 设置...", action: #selector(openSettings), keyEquivalent: "")
@@ -69,6 +78,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+    }
+
+    private enum StatusBarState {
+        case idle, recording, processing, error
+    }
+
+    private func updateStatusBarIcon(_ state: StatusBarState) {
+        switch state {
+        case .idle:
+            statusItem.button?.title = "🎤"
+            statusItem.button?.toolTip = "VoiceInput - 空闲"
+        case .recording:
+            statusItem.button?.title = "🔴"
+            statusItem.button?.toolTip = "VoiceInput - 正在录音..."
+        case .processing:
+            statusItem.button?.title = "⏳"
+            statusItem.button?.toolTip = "VoiceInput - 正在识别..."
+        case .error:
+            statusItem.button?.title = "⚠️"
+            statusItem.button?.toolTip = "VoiceInput - 出现错误"
+        }
+    }
+
+    // MARK: - Accessibility Check
+
+    private func checkAccessibilityPermission() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            if !AXIsProcessTrusted() {
+                AppLogger.warn("辅助功能权限未授权")
+                let alert = NSAlert()
+                alert.messageText = "需要辅助功能权限"
+                alert.informativeText = "VoiceInput 需要辅助功能权限才能将识别的文字输入到其他应用。\n\n请在「系统设置 → 隐私与安全 → 辅助功能」中启用 VoiceInput。"
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "打开系统设置")
+                alert.addButton(withTitle: "稍后设置")
+                if alert.runModal() == .alertFirstButtonReturn {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                }
+            }
+        }
     }
 
     // MARK: - Hotkey
@@ -104,12 +153,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func checkSTTService() {
         guard let sttClient else {
             statusMenuItem.title = "❌ STT 地址无效"
+            updateStatusBarIcon(.error)
             return
         }
+        statusMenuItem.title = "⏳ 正在检查服务..."
         Task {
             let result = await sttClient.healthCheck()
             await MainActor.run {
-                statusMenuItem.title = result.isOnline ? "✅ STT 服务在线" : "❌ STT 服务离线"
+                if result.isOnline {
+                    statusMenuItem.title = "✅ STT 服务在线"
+                    if !isRecording && !isProcessing {
+                        updateStatusBarIcon(.idle)
+                    }
+                } else {
+                    statusMenuItem.title = "❌ STT 服务离线 - \(result.reason)"
+                    if !isRecording && !isProcessing {
+                        updateStatusBarIcon(.error)
+                    }
+                    // Auto-retry after 10 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                        self?.checkSTTService()
+                    }
+                }
             }
             if result.isOnline {
                 AppLogger.info("服务健康检查: online (\(result.reason))")
@@ -123,41 +188,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startRecording() {
         isRecording = true
-        statusItem.button?.title = "🔴"
+        updateStatusBarIcon(.recording)
+        recordStartTime = Date()
         recordMenuItem.title = "⏹️ 停止录音"
+        statusMenuItem.title = "🔴 正在录音..."
         AppLogger.info("开始录音")
+
+        // Start duration timer
+        durationTimer?.invalidate()
+        durationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self, let start = self.recordStartTime else { return }
+            let duration = Date().timeIntervalSince(start)
+            let seconds = Int(duration)
+            self.statusMenuItem.title = "🔴 正在录音 \(seconds)s"
+        }
 
         do {
             try recorder.start()
             if config.soundEffect { SoundEffect.play(.start) }
         } catch {
             isRecording = false
-            statusItem.button?.title = "🎤"
+            durationTimer?.invalidate()
+            durationTimer = nil
+            recordStartTime = nil
+            updateStatusBarIcon(.error)
             recordMenuItem.title = "🎙️ 开始录音 (Fn)"
+            let userMessage = userFriendlyErrorMessage(error)
             AppLogger.error("录音启动失败: \(error.localizedDescription)")
-            showError("录音启动失败: \(error.localizedDescription)")
+            showError(userMessage)
+            // Recovery after error
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, !self.isRecording, !self.isProcessing else { return }
+                self.updateStatusBarIcon(.idle)
+                self.checkSTTService()
+            }
         }
     }
 
     private func stopRecordingAndTranscribe() {
+        durationTimer?.invalidate()
+        durationTimer = nil
+
         guard let sttClient else {
             isRecording = false
+            recordStartTime = nil
             resetUI()
-            showError("STT 服务未配置，请检查设置")
+            showError("STT 服务未配置，请在设置中检查服务地址")
             return
         }
         guard let audioData = recorder.stop() else {
             isRecording = false
+            recordStartTime = nil
             statusItem.button?.title = "🎤"
+            updateStatusBarIcon(.idle)
             recordMenuItem.title = "🎙️ 开始录音 (Fn)"
+            statusMenuItem.title = "✅ STT 服务在线"
             AppLogger.warn("停止录音后没有采集到音频数据")
+            showError("录音时间太短，请按住 Fn 键后说话再松开")
             return
         }
-        AppLogger.info("停止录音, 采集字节数=\(audioData.count)")
+
+        // Check minimum recording duration (0.5s = 16000 * 2 * 0.5 = 16000 bytes)
+        let minBytes = Int(config.sampleRate) * 2 / 2 // 0.5 seconds
+        if audioData.count < minBytes {
+            isRecording = false
+            recordStartTime = nil
+            resetUI()
+            showError("录音时间太短（不足 0.5 秒），请按住 Fn 键后说话再松开")
+            AppLogger.warn("录音太短: \(audioData.count) 字节")
+            return
+        }
+
+        let duration = recordStartTime.map { Date().timeIntervalSince($0) } ?? 0
+        recordStartTime = nil
+        AppLogger.info("停止录音, 采集字节数=\(audioData.count), 时长=\(String(format: "%.1f", duration))s")
 
         isRecording = false
         isProcessing = true
-        statusItem.button?.title = "⏳"
+        updateStatusBarIcon(.processing)
+        statusMenuItem.title = "⏳ 正在识别..."
         recordMenuItem.title = "⏳ 识别中..."
         if config.soundEffect { SoundEffect.play(.stop) }
 
@@ -167,6 +276,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     if !text.isEmpty {
                         self.lastText = text
+                        self.lastResultMenuItem.isEnabled = true
+                        self.lastResultMenuItem.title = "📋 粘贴: \(String(text.prefix(20)))\(text.count > 20 ? "..." : "")"
                         if self.config.autoPaste {
                             TextInjector.inject(text)
                             AppLogger.info("识别成功并自动粘贴, 文本长度=\(text.count)")
@@ -176,14 +287,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.showNotification("✅ 识别完成", body: String(text.prefix(50)))
                     } else {
                         AppLogger.warn("识别成功但返回空文本")
+                        self.showError("识别结果为空，请再试一次")
                     }
                     self.resetUI()
                 }
             } catch {
                 await MainActor.run {
+                    let userMessage = self.userFriendlyErrorMessage(error)
                     AppLogger.error("识别失败: \(error.localizedDescription)")
-                    self.showError("识别失败: \(error.localizedDescription)")
+                    self.showError(userMessage)
                     self.resetUI()
+                    // Auto-retry service check after error
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                        self?.checkSTTService()
+                    }
                 }
             }
         }
@@ -192,8 +309,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func resetUI() {
         isRecording = false
         isProcessing = false
-        statusItem.button?.title = "🎤"
+        updateStatusBarIcon(.idle)
         recordMenuItem.title = "🎙️ 开始录音 (Fn)"
+        statusMenuItem.title = "✅ STT 服务在线"
+    }
+
+    // MARK: - User-Friendly Error Messages
+
+    private func userFriendlyErrorMessage(_ error: Error) -> String {
+        let desc = error.localizedDescription.lowercased()
+        if desc.contains("timed out") || desc.contains("timeout") {
+            return "识别超时，请检查网络连接或 STT 服务是否正常运行"
+        }
+        if desc.contains("network") || desc.contains("networking") || desc.contains("could not connect") {
+            return "无法连接到 STT 服务，请检查网络和服务器地址设置"
+        }
+        if desc.contains("denied") || desc.contains("permission") {
+            return "权限被拒绝，请在系统设置中检查相关权限"
+        }
+        if let sttError = error as? STTError {
+            switch sttError {
+            case .httpError(let code, _) where code == 500:
+                return "STT 服务内部错误，请联系管理员"
+            case .httpError(let code, _) where code == 404:
+                return "STT 服务接口不存在，请检查服务地址配置"
+            case .httpError(let code, _) where code == 0:
+                return "无法连接到 STT 服务，请检查服务是否已启动"
+            default:
+                return "识别服务出错，请稍后重试"
+            }
+        }
+        return "操作失败，请稍后重试"
     }
 
     // MARK: - Menu Actions
@@ -230,18 +376,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             if !NSWorkspace.shared.open(logURL) {
                 AppLogger.error("无法打开日志文件: \(logURL.path)")
-                showError("无法打开日志文件: \(logURL.path)")
+                showError("无法打开日志文件")
             } else {
                 AppLogger.info("打开日志文件")
             }
         } catch {
             AppLogger.error("准备日志文件失败: \(error.localizedDescription)")
-            showError("准备日志文件失败: \(error.localizedDescription)")
+            showError("无法打开日志文件")
         }
     }
 
     @objc private func quitApp() {
         AppLogger.info("应用退出")
+        durationTimer?.invalidate()
         hotkeyMonitor.stop()
         NSApp.terminate(nil)
     }
@@ -250,15 +397,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showError(_ message: String) {
         AppLogger.error(message)
-        showNotification("错误", body: message)
+        updateStatusBarIcon(.error)
+        showNotification("⚠️ 提示", body: message)
+        // Reset icon after 5 seconds if not recording/processing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self, !self.isRecording, !self.isProcessing else { return }
+            self.updateStatusBarIcon(.idle)
+        }
     }
 
     private func showNotification(_ title: String, body: String) {
-        let notification = NSUserNotification()
-        notification.title = "Voice Input"
-        notification.subtitle = title
-        notification.informativeText = body
-        notification.soundName = nil
-        NSUserNotificationCenter.default.deliver(notification)
+        let content = UNMutableNotificationContent()
+        content.title = "VoiceInput"
+        content.subtitle = title
+        content.body = body
+        content.sound = nil
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 }

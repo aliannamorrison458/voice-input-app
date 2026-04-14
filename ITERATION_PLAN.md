@@ -14,13 +14,13 @@
 - [ ] audioBuffer 无大小限制 → 内存爆
 
 ### P1 — 用户体验缺陷
-- [ ] NSUserNotification 已弃用 → macOS 14+ 不显示通知
-- [ ] 无辅助功能权限检查 → 注入静默失败
-- [ ] 菜单栏图标无状态区分 (idle/recording/processing/error)
-- [ ] 无录音时长显示
-- [ ] 无录音中视觉反馈 (只有图标变化)
-- [ ] 错误提示不友好 (直接显示技术信息)
-- [ ] STT URL 默认内网 IP → 新用户无法使用
+- [x] NSUserNotification 已弃用 → macOS 14+ 不显示通知
+- [x] 无辅助功能权限检查 → 注入静默失败
+- [x] 菜单栏图标无状态区分 (idle/recording/processing/error)
+- [x] 无录音时长显示
+- [x] 无录音中视觉反馈 (只有图标变化)
+- [x] 错误提示不友好 (直接显示技术信息)
+- [x] STT URL 默认内网 IP → 新用户无法使用
 
 ### P2 — 交互打磨
 - [ ] 设置是打开 JSON 文件 → 应有 GUI 设置窗口

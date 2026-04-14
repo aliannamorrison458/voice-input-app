@@ -42,7 +42,7 @@ struct Config: Codable {
     static let configFileURL = configDirURL.appendingPathComponent("config.json")
 
     static let `default` = Config(
-        sttUrl: "http://192.168.8.195:7700",
+        sttUrl: "http://127.0.0.1:7700",
         language: "auto",
         sampleRate: 16000,
         transcribeMode: .file,
