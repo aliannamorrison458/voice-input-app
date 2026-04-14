@@ -52,3 +52,10 @@
   - error: "出现问题\n点击菜单查看详情或重试"
 - 引入 QuartzCore import 实现 NSAnimationContext 渐变效果
 - 动画停止时正确清理 Timer 并恢复 alphaValue=1.0
+
+### 打磨2: UX-2 交互流畅度 (2026-04-15)
+- 热键按下后即时 UI 反馈 (<50ms): 立即更新图标、菜单项、启动计时器
+- AVAudioEngine 初始化移至后台线程 (DispatchQueue.global userInteractive)，不阻塞 UI
+- 录音状态设置从 startRecording() 拆分到 onHotkeyPress()，实现"按键即响应"
+- toggleRecord() 菜单操作复用 onHotkeyPress() 确保一致体验
+- 错误处理增加 DispatchQueue.main.async 包装，保证 UI 操作在主线程

@@ -43,10 +43,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkey()
         checkSTTService()
         checkAccessibilityPermission()
+        checkDiskSpace()
 
         settingsWindowController = SettingsWindowController(config: config) { [weak self] newConfig in
             self?.applyConfig(newConfig)
         }
+
+        // Periodic health checks: disk + accessibility every 60s
+        startPeriodicHealthChecks()
+    }
+
+    private var healthCheckTimer: Timer?
+
+    private func startPeriodicHealthChecks() {
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.checkDiskSpace()
+            self?.recheckAccessibilityPermission()
+        }
+    }
+
+    private func checkDiskSpace() {
+        let configDir = Config.configDirURL
+        do {
+            let attrs = try FileManager.default.attributesOfFileSystem(forPath: configDir.path)
+            if let freeSpace = attrs[.systemFreeSize] as? UInt64 {
+                let freeMB = Double(freeSpace) / (1024 * 1024)
+                if freeMB < 100 {
+                    AppLogger.warn("磁盘空间不足: 剩余 \(Int(freeMB))MB")
+                    showError("磁盘空间不足（剩余 \(Int(freeMB))MB），日志可能无法正常写入")
+                }
+            }
+        } catch {
+            // Silently ignore - non-critical check
+        }
+    }
+
+    private var accessibilityWasGranted = AXIsProcessTrusted()
+
+    private func recheckAccessibilityPermission() {
+        let currentlyGranted = AXIsProcessTrusted()
+        if accessibilityWasGranted && !currentlyGranted {
+            AppLogger.warn("辅助功能权限已被撤回")
+            showError("辅助功能权限已失效，文字注入将无法工作。请在系统设置中重新启用。")
+        }
+        accessibilityWasGranted = currentlyGranted
     }
 
     // MARK: - Menu Bar
@@ -499,6 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLogger.info("应用退出")
         durationTimer?.invalidate()
         pulseTimer?.invalidate()
+        healthCheckTimer?.invalidate()
         hotkeyMonitor.stop()
         NSApp.terminate(nil)
     }
