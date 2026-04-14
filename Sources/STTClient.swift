@@ -13,8 +13,13 @@ final class STTClient {
     private let transcribeMode: Config.TranscribeMode
     private let backend: String
 
-    init(baseURL: String, language: String, sampleRate: Double, transcribeMode: Config.TranscribeMode, backend: String) {
-        self.baseURL = URL(string: baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))!
+    init?(baseURL: String, language: String, sampleRate: Double, transcribeMode: Config.TranscribeMode, backend: String) {
+        let cleaned = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: cleaned) else {
+            AppLogger.error("无效的 STT URL: \(baseURL)")
+            return nil
+        }
+        self.baseURL = url
         self.language = language
         self.sampleRate = sampleRate
         self.transcribeMode = transcribeMode
@@ -137,7 +142,10 @@ final class STTClient {
     }
 
     private func transcribeByWebSocket(audioData: Data) async throws -> String {
-        let wsURL = websocketURL().appendingPathComponent("v1/stream")
+        guard let wsBase = websocketURL() else {
+            throw STTError.invalidURL
+        }
+        let wsURL = wsBase.appendingPathComponent("v1/stream")
         let task = URLSession.shared.webSocketTask(with: wsURL)
         task.resume()
         defer {
@@ -184,18 +192,20 @@ final class STTClient {
         return text
     }
 
-    private func websocketURL() -> URL {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+    private func websocketURL() -> URL? {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
         components.scheme = components.scheme == "https" ? "wss" : "ws"
-        return components.url!
+        return components.url
     }
 
     /// Wrap raw PCM data in a WAV container.
     private func wavData(from pcm: Data) -> Data {
-        let sampleRate: UInt32 = 16000
+        let sr: UInt32 = UInt32(sampleRate)
         let channels: UInt16 = 1
         let bitsPerSample: UInt16 = 16
-        let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
+        let byteRate = sr * UInt32(channels) * UInt32(bitsPerSample / 8)
         let blockAlign = channels * (bitsPerSample / 8)
         let dataSize = UInt32(pcm.count)
 
@@ -209,7 +219,7 @@ final class STTClient {
         data.append(littleEndian: UInt32(16)) // chunk size
         data.append(littleEndian: UInt16(1))  // PCM
         data.append(littleEndian: channels)
-        data.append(littleEndian: sampleRate)
+        data.append(littleEndian: sr)
         data.append(littleEndian: byteRate)
         data.append(littleEndian: blockAlign)
         data.append(littleEndian: bitsPerSample)
@@ -224,6 +234,7 @@ final class STTClient {
 enum STTError: LocalizedError {
     case httpError(Int, String)
     case noTextInResponse
+    case invalidURL
 
     var errorDescription: String? {
         switch self {
@@ -231,6 +242,8 @@ enum STTError: LocalizedError {
             return "STT 请求失败 (HTTP \(code)): \(msg)"
         case .noTextInResponse:
             return "STT 响应中没有 text 字段"
+        case .invalidURL:
+            return "STT 服务地址无效"
         }
     }
 }

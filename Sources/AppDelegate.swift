@@ -24,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             transcribeMode: config.transcribeMode,
             backend: config.backend
         )
+        if sttClient == nil {
+            AppLogger.error("STT 客户端初始化失败，URL 无效: \(config.sttUrl)")
+        }
         AppLogger.info("应用启动, STT=\(config.sttUrl), language=\(config.language), sampleRate=\(Int(config.sampleRate)), mode=\(config.transcribeMode.rawValue), backend=\(config.backend)")
 
         setupMenu()
@@ -99,6 +102,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Service Check
 
     private func checkSTTService() {
+        guard let sttClient else {
+            statusMenuItem.title = "❌ STT 地址无效"
+            return
+        }
         Task {
             let result = await sttClient.healthCheck()
             await MainActor.run {
@@ -133,6 +140,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func stopRecordingAndTranscribe() {
+        guard let sttClient else {
+            isRecording = false
+            resetUI()
+            showError("STT 服务未配置，请检查设置")
+            return
+        }
         guard let audioData = recorder.stop() else {
             isRecording = false
             statusItem.button?.title = "🎤"
