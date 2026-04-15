@@ -66,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 self.showNotification(
                     "👋 欢迎使用 VoiceInput",
-                    body: "按住 Fn 键开始说话，松开自动识别。点击菜单栏 🎤 图标查看更多功能。"
+                    body: "按住 \(self.config.hotkey.displayName) 键开始说话，松开自动识别。点击菜单栏 🎤 图标查看更多功能。"
                 )
             }
         }
@@ -123,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         recordMenuItem = NSMenuItem(title: "🎙️ 开始录音", action: #selector(toggleRecord), keyEquivalent: "")
         recordMenuItem.target = self
-        recordMenuItem.toolTip = "按住 Fn 键快速开始录音"
+        recordMenuItem.toolTip = "按住 \(config.hotkey.displayName) 键快速开始录音"
         menu.addItem(recordMenuItem)
 
         lastResultMenuItem = NSMenuItem(title: "📋 粘贴上次结果", action: #selector(pasteLast), keyEquivalent: "v")
@@ -186,11 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .idle:
             statusItem.button?.title = "🎤"
-            statusItem.button?.toolTip = "VoiceInput 就绪\n按住 Fn 键开始录音\n点击菜单查看更多选项"
+            statusItem.button?.toolTip = "VoiceInput 就绪\n按住 \(config.hotkey.displayName) 键开始录音\n点击菜单查看更多选项"
             statusItem.button?.alphaValue = 1.0
         case .recording:
             statusItem.button?.title = "🔴"
-            statusItem.button?.toolTip = "正在录音中…\n松开 Fn 键停止并识别"
+            statusItem.button?.toolTip = "正在录音中…\n松开 \(config.hotkey.displayName) 键停止并识别"
             statusItem.button?.alphaValue = 1.0
             // Start pulse animation
             startPulseAnimation()
@@ -250,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 AppLogger.warn("辅助功能权限未授权")
                 let alert = NSAlert()
                 alert.messageText = "VoiceInput 需要辅助功能权限"
-                alert.informativeText = "VoiceInput 需要辅助功能权限才能将识别的文字输入到其他应用。\n\n按住 Fn 键说话后，松开即可自动输入文字。\n\n请在「系统设置 → 隐私与安全 → 辅助功能」中启用 VoiceInput。"
+                alert.informativeText = "VoiceInput 需要辅助功能权限才能将识别的文字输入到其他应用。\n\n按住 \(self.config.hotkey.displayName) 键说话后，松开即可自动输入文字。\n\n请在「系统设置 → 隐私与安全 → 辅助功能」中启用 VoiceInput。"
                 alert.alertStyle = .informational
                 alert.addButton(withTitle: "打开系统设置")
                 alert.addButton(withTitle: "稍后设置")
@@ -261,10 +261,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func updateMenuForHotkey(_ hotkey: Config.Hotkey) {
+        recordMenuItem.toolTip = "按住 \(hotkey.displayName) 键快速开始录音"
+    }
+
     // MARK: - Hotkey
 
     private func setupHotkey() {
-        hotkeyMonitor = HotkeyMonitor { [weak self] pressed in
+        hotkeyMonitor = HotkeyMonitor(hotkey: config.hotkey) { [weak self] pressed in
             guard let self else { return }
             if pressed {
                 self.onHotkeyPress()
@@ -407,7 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recordStartTime = nil
             resetUI()
             AppLogger.warn("停止录音后没有采集到音频数据")
-            showError("录音时间太短，请按住 Fn 键后说话再松开")
+            showError("录音时间太短，请按住 \(config.hotkey.displayName) 键后说话再松开")
             return
         }
 
@@ -417,7 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isProcessing = false
             recordStartTime = nil
             resetUI()
-            showError("录音时间太短（不足 0.5 秒），请按住 Fn 键后说话再松开")
+            showError("录音时间太短（不足 0.5 秒），请按住 \(config.hotkey.displayName) 键后说话再松开")
             AppLogger.warn("录音太短: \(audioData.count) 字节")
             return
         }
@@ -546,7 +550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "VoiceInput 使用帮助"
         alert.informativeText = """
         基本操作:
-        • 按住 Fn 键开始录音，松开停止并识别
+        • 按住 \(config.hotkey.displayName) 键开始录音，松开停止并识别
         • 也可点击菜单栏图标 → 开始录音
 
         功能说明:
@@ -555,7 +559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         • 开机自启动: 系统登录时自动运行
 
         快捷键:
-        • Fn - 按住录音/松开识别
+        • \(config.hotkey.displayName) - 按住录音/松开识别
         • Cmd+Q - 退出应用
 
         更多设置请打开「设置...」菜单项。
@@ -568,7 +572,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyConfig(_ newConfig: Config) {
         config = newConfig
         Config.save(newConfig)
-        AppLogger.info("配置已更新: STT=\(newConfig.sttUrl), language=\(newConfig.language), mode=\(newConfig.transcribeMode.rawValue)")
+        AppLogger.info("配置已更新: STT=\(newConfig.sttUrl), language=\(newConfig.language), mode=\(newConfig.transcribeMode.rawValue), hotkey=\(newConfig.hotkey.rawValue)")
+
+        // Update hotkey
+        hotkeyMonitor.updateHotkey(newConfig.hotkey)
+        updateMenuForHotkey(newConfig.hotkey)
 
         // Recreate recorder if sample rate changed
         recorder = AudioRecorder(sampleRate: newConfig.sampleRate)

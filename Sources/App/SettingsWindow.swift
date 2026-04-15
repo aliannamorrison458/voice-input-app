@@ -84,6 +84,13 @@ struct SettingsView: View {
                     Label("行为", systemImage: "gearshape")
                         .font(.headline)
 
+                    Picker("快捷键", selection: $model.hotkey) {
+                        ForEach(Config.Hotkey.allCases, id: \.self) { hotkey in
+                            Text(hotkey.displayName).tag(hotkey.rawValue)
+                        }
+                    }
+                    .help("选择按住哪个键来开始录音")
+
                     Toggle("自动粘贴识别结果", isOn: $model.autoPaste)
                         .help("识别完成后自动粘贴到当前光标位置 (需要辅助功能权限)")
 
@@ -126,7 +133,7 @@ struct SettingsView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(width: 480, height: 440)
+        .frame(width: 480, height: 500)
     }
 }
 
@@ -139,6 +146,7 @@ final class SettingsModel: ObservableObject {
     @Published var backend: String
     @Published var autoPaste: Bool
     @Published var soundEffect: Bool
+    @Published var hotkey: String
 
     init(config: Config) {
         self.sttUrl = config.sttUrl
@@ -148,6 +156,7 @@ final class SettingsModel: ObservableObject {
         self.backend = config.backend
         self.autoPaste = config.autoPaste
         self.soundEffect = config.soundEffect
+        self.hotkey = config.hotkey.rawValue
     }
 
     func toConfig() -> Config {
@@ -158,7 +167,8 @@ final class SettingsModel: ObservableObject {
             transcribeMode: Config.TranscribeMode(rawValue: transcribeMode) ?? .file,
             backend: backend,
             autoPaste: autoPaste,
-            soundEffect: soundEffect
+            soundEffect: soundEffect,
+            hotkey: Config.Hotkey(rawValue: hotkey) ?? .fn
         )
     }
 
@@ -171,6 +181,7 @@ final class SettingsModel: ObservableObject {
         backend = d.backend
         autoPaste = d.autoPaste
         soundEffect = d.soundEffect
+        hotkey = d.hotkey.rawValue
     }
 }
 

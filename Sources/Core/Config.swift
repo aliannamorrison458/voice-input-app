@@ -1,10 +1,46 @@
 import Foundation
+import AppKit
 
 public struct Config: Codable {
     public enum TranscribeMode: String, Codable {
         case file
         case pcm
         case websocket
+    }
+
+    public enum Hotkey: String, Codable, CaseIterable {
+        case fn = "fn"
+        case ctrl = "ctrl"
+        case option = "option"
+        case command = "command"
+        case ctrlOption = "ctrl+option"
+        case ctrlCommand = "ctrl+command"
+        case optionCommand = "option+command"
+
+        public var displayName: String {
+            switch self {
+            case .fn: return "Fn"
+            case .ctrl: return "⌃ Control"
+            case .option: return "⌥ Option"
+            case .command: return "⌘ Command"
+            case .ctrlOption: return "⌃⌥ Control+Option"
+            case .ctrlCommand: return "⌃⌘ Control+Command"
+            case .optionCommand: return "⌥⌘ Option+Command"
+            }
+        }
+
+        /// NSEvent.modifierFlags that match this hotkey
+        public var modifierFlags: NSEvent.ModifierFlags {
+            switch self {
+            case .fn: return .function
+            case .ctrl: return .control
+            case .option: return .option
+            case .command: return .command
+            case .ctrlOption: return [.control, .option]
+            case .ctrlCommand: return [.control, .command]
+            case .optionCommand: return [.option, .command]
+            }
+        }
     }
 
     public var sttUrl: String
@@ -14,9 +50,10 @@ public struct Config: Codable {
     public var backend: String
     public var autoPaste: Bool
     public var soundEffect: Bool
+    public var hotkey: Hotkey
 
     enum CodingKeys: String, CodingKey {
-        case sttUrl, language, sampleRate, transcribeMode, backend, autoPaste, soundEffect
+        case sttUrl, language, sampleRate, transcribeMode, backend, autoPaste, soundEffect, hotkey
     }
 
     public init(
@@ -26,7 +63,8 @@ public struct Config: Codable {
         transcribeMode: TranscribeMode,
         backend: String,
         autoPaste: Bool,
-        soundEffect: Bool
+        soundEffect: Bool,
+        hotkey: Hotkey = .fn
     ) {
         self.sttUrl = sttUrl
         self.language = language
@@ -35,6 +73,7 @@ public struct Config: Codable {
         self.backend = backend
         self.autoPaste = autoPaste
         self.soundEffect = soundEffect
+        self.hotkey = hotkey
     }
 
     public static let configDirURL = FileManager.default.homeDirectoryForCurrentUser
@@ -96,5 +135,6 @@ public struct Config: Codable {
         self.backend = try container.decodeIfPresent(String.self, forKey: .backend) ?? Config.default.backend
         self.autoPaste = try container.decodeIfPresent(Bool.self, forKey: .autoPaste) ?? Config.default.autoPaste
         self.soundEffect = try container.decodeIfPresent(Bool.self, forKey: .soundEffect) ?? Config.default.soundEffect
+        self.hotkey = try container.decodeIfPresent(Hotkey.self, forKey: .hotkey) ?? Config.default.hotkey
     }
 }
