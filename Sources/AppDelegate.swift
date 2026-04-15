@@ -296,10 +296,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.statusMenuItem.title = "🔴 正在录音 \(seconds)s"
             }
 
-            // Audio init on background to not block UI
-            DispatchQueue.global(qos: .userInteractive).async {
-                self.initiateRecording()
-            }
+            // Audio init on main thread (AVAudioEngine requires main thread)
+            // UI feedback already shown above, audio init follows immediately
+            self.initiateRecording()
         }
     }
 
@@ -352,27 +351,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLogger.info("开始录音")
         do {
             try recorder.start()
-            DispatchQueue.main.async {
-                if self.config.soundEffect { SoundEffect.play(.start) }
-                self.statusMenuItem.title = "🔴 正在录音 0s"
-            }
+            if config.soundEffect { SoundEffect.play(.start) }
+            statusMenuItem.title = "🔴 正在录音 0s"
         } catch {
-            DispatchQueue.main.async {
-                self.isRecording = false
-                self.durationTimer?.invalidate()
-                self.durationTimer = nil
-                self.recordStartTime = nil
-                self.updateStatusBarIcon(.error)
-                self.recordMenuItem.title = "🎙️ 开始录音"
-                let userMessage = self.userFriendlyErrorMessage(error)
-                AppLogger.error("录音启动失败: \(error.localizedDescription)")
-                self.showError(userMessage)
-                // Recovery after error
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                    guard let self, !self.isRecording, !self.isProcessing else { return }
-                    self.updateStatusBarIcon(.idle)
-                    self.checkSTTService()
-                }
+            self.isRecording = false
+            self.durationTimer?.invalidate()
+            self.durationTimer = nil
+            self.recordStartTime = nil
+            self.updateStatusBarIcon(.error)
+            self.recordMenuItem.title = "🎙️ 开始录音"
+            let userMessage = self.userFriendlyErrorMessage(error)
+            AppLogger.error("录音启动失败: \(error.localizedDescription)")
+            self.showError(userMessage)
+            // Recovery after error
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, !self.isRecording, !self.isProcessing else { return }
+                self.updateStatusBarIcon(.idle)
+                self.checkSTTService()
             }
         }
     }
@@ -527,8 +522,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         AppLogger.info("打开设置窗口")
-        settingsWindowController = SettingsWindowController(config: config) { [weak self] newConfig in
-            self?.applyConfig(newConfig)
+        if settingsWindowController == nil {
+            settingsWindowController = SettingsWindowController(config: config) { [weak self] newConfig in
+                self?.applyConfig(newConfig)
+            }
         }
         settingsWindowController?.showWindow()
     }

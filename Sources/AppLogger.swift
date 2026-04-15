@@ -68,6 +68,7 @@ enum AppLogger {
         }
         // Move current log to backup
         try? fm.moveItem(at: logFileURL, to: logFileBackupURL)
-        AppLogger.info("日志已轮转，旧日志保存为 log.old.txt")
+        // Note: don't call AppLogger.info() here — we're already inside write()
+        // on the serial queue, which would cause a recursive dispatch.
     }
 }
