@@ -7,10 +7,20 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "VoiceInput",
-            path: "Sources",
+            dependencies: ["VoiceInputCore"],
+            path: "Sources/App",
             swiftSettings: [
                 .unsafeFlags(["-parse-as-library"])
             ]
-        )
+        ),
+        .target(
+            name: "VoiceInputCore",
+            path: "Sources/Core"
+        ),
+        .testTarget(
+            name: "VoiceInputTests",
+            dependencies: ["VoiceInputCore"],
+            path: "Tests"
+        ),
     ]
 )

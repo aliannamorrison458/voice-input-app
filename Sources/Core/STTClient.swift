@@ -1,10 +1,10 @@
 import Foundation
 
 /// HTTP client for the STT service (OpenAI-compatible /v1/audio/transcriptions).
-final class STTClient {
-    struct HealthCheckResult {
-        let isOnline: Bool
-        let reason: String
+public final class STTClient {
+    public struct HealthCheckResult {
+        public let isOnline: Bool
+        public let reason: String
     }
 
     private let baseURL: URL
@@ -14,13 +14,13 @@ final class STTClient {
     private let backend: String
 
     /// Display-friendly URL string for UI
-    var currentBaseURL: String {
+    public var currentBaseURL: String {
         baseURL.absoluteString
     }
 
-    init?(baseURL: String, language: String, sampleRate: Double, transcribeMode: Config.TranscribeMode, backend: String) {
+    public init?(baseURL: String, language: String, sampleRate: Double, transcribeMode: Config.TranscribeMode, backend: String) {
         let cleaned = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard let url = URL(string: cleaned) else {
+        guard let url = URL(string: cleaned), url.scheme != nil else {
             AppLogger.error("无效的 STT URL: \(baseURL)")
             return nil
         }
@@ -31,7 +31,7 @@ final class STTClient {
         self.backend = backend
     }
 
-    func healthCheck() async -> HealthCheckResult {
+    public func healthCheck() async -> HealthCheckResult {
         let url = baseURL.appendingPathComponent("health")
         do {
             var request = URLRequest(url: url)
@@ -63,7 +63,7 @@ final class STTClient {
         }
     }
 
-    func transcribe(audioData: Data, timeout: TimeInterval = 30, retries: Int = 2) async throws -> String {
+    public func transcribe(audioData: Data, timeout: TimeInterval = 30, retries: Int = 2) async throws -> String {
         var lastError: Error?
         for attempt in 0...retries {
             if attempt > 0 {
@@ -255,12 +255,12 @@ final class STTClient {
     }
 }
 
-enum STTError: LocalizedError {
+public enum STTError: LocalizedError {
     case httpError(Int, String)
     case noTextInResponse
     case invalidURL
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .httpError(let code, let msg):
             return "STT 请求失败 (HTTP \(code)): \(msg)"

@@ -4,6 +4,7 @@ import CoreAudio
 import UserNotifications
 import ServiceManagement
 import QuartzCore
+import VoiceInputCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -22,8 +23,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Request notification permission
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        // Request notification permission (requires proper app bundle)
+        if Bundle.main.bundleIdentifier != nil {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
 
         config = Config.load()
         recorder = AudioRecorder(sampleRate: config.sampleRate)
@@ -641,6 +644,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showNotification(_ title: String, body: String) {
+        // UNUserNotificationCenter requires a proper app bundle
+        guard Bundle.main.bundleIdentifier != nil else {
+            AppLogger.info("通知: \(title) - \(body)")
+            return
+        }
         let content = UNMutableNotificationContent()
         content.title = "VoiceInput"
         content.subtitle = title

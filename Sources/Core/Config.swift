@@ -1,25 +1,25 @@
 import Foundation
 
-struct Config: Codable {
-    enum TranscribeMode: String, Codable {
+public struct Config: Codable {
+    public enum TranscribeMode: String, Codable {
         case file
         case pcm
         case websocket
     }
 
-    var sttUrl: String
-    var language: String
-    var sampleRate: Double
-    var transcribeMode: TranscribeMode
-    var backend: String
-    var autoPaste: Bool
-    var soundEffect: Bool
+    public var sttUrl: String
+    public var language: String
+    public var sampleRate: Double
+    public var transcribeMode: TranscribeMode
+    public var backend: String
+    public var autoPaste: Bool
+    public var soundEffect: Bool
 
     enum CodingKeys: String, CodingKey {
         case sttUrl, language, sampleRate, transcribeMode, backend, autoPaste, soundEffect
     }
 
-    init(
+    public init(
         sttUrl: String,
         language: String,
         sampleRate: Double,
@@ -37,11 +37,11 @@ struct Config: Codable {
         self.soundEffect = soundEffect
     }
 
-    static let configDirURL = FileManager.default.homeDirectoryForCurrentUser
+    public static let configDirURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".voice-input")
-    static let configFileURL = configDirURL.appendingPathComponent("config.json")
+    public static let configFileURL = configDirURL.appendingPathComponent("config.json")
 
-    static let `default` = Config(
+    public static let `default` = Config(
         sttUrl: "http://127.0.0.1:7700",
         language: "auto",
         sampleRate: 16000,
@@ -51,7 +51,7 @@ struct Config: Codable {
         soundEffect: true
     )
 
-    static func load() -> Config {
+    public static func load() -> Config {
         do {
             try FileManager.default.createDirectory(at: configDirURL, withIntermediateDirectories: true)
         } catch {
@@ -77,7 +77,7 @@ struct Config: Codable {
         }
     }
 
-    static func save(_ config: Config) {
+    public static func save(_ config: Config) {
         do {
             try FileManager.default.createDirectory(at: configDirURL, withIntermediateDirectories: true)
             let data = try JSONEncoder().encode(config)
@@ -87,7 +87,7 @@ struct Config: Codable {
         }
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.sttUrl = try container.decodeIfPresent(String.self, forKey: .sttUrl) ?? Config.default.sttUrl
         self.language = try container.decodeIfPresent(String.self, forKey: .language) ?? Config.default.language

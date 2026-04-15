@@ -1,6 +1,6 @@
 import Foundation
 
-enum AppLogger {
+public enum AppLogger {
     private static let queue = DispatchQueue(label: "voice-input.logger")
     private static let formatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -19,15 +19,15 @@ enum AppLogger {
         Config.configDirURL.appendingPathComponent("log.old.txt")
     }
 
-    static func info(_ message: String) {
+    public static func info(_ message: String) {
         write(level: "INFO", message: message)
     }
 
-    static func warn(_ message: String) {
+    public static func warn(_ message: String) {
         write(level: "WARN", message: message)
     }
 
-    static func error(_ message: String) {
+    public static func error(_ message: String) {
         write(level: "ERROR", message: message)
     }
 

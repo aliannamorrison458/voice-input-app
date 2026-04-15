@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 
 /// Records audio from the default input device using AVAudioEngine.
-final class AudioRecorder {
+public final class AudioRecorder {
     private let sampleRate: Double
     private var engine: AVAudioEngine?
     private var audioBuffer = Data()
@@ -12,12 +12,12 @@ final class AudioRecorder {
     /// Max buffer: 5 minutes of 16kHz mono Int16
     private let maxBufferSize: Int
 
-    init(sampleRate: Double = 16000) {
+    public init(sampleRate: Double = 16000) {
         self.sampleRate = sampleRate
         self.maxBufferSize = Int(sampleRate) * 2 * 300
     }
 
-    func start() throws {
+    public func start() throws {
         try ensureMicPermission()
 
         lock.lock()
@@ -71,7 +71,7 @@ final class AudioRecorder {
         try engine.start()
     }
 
-    func stop() -> Data? {
+    public func stop() -> Data? {
         recording = false
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
@@ -118,11 +118,11 @@ final class AudioRecorder {
     }
 }
 
-enum RecorderError: LocalizedError {
+public enum RecorderError: LocalizedError {
     case micPermissionDenied
     case converterSetupFailed
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .micPermissionDenied:
             return "麦克风权限被拒绝，请在系统设置 → 隐私与安全 → 麦克风中授权"

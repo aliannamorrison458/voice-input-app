@@ -1,4 +1,5 @@
 import SwiftUI
+import VoiceInputCore
 
 /// SwiftUI settings window for VoiceInput.
 struct SettingsView: View {

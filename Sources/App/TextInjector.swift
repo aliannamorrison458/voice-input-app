@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import VoiceInputCore
 
 /// Injects text into the current focused app via clipboard + Cmd+V.
 enum TextInjector {
