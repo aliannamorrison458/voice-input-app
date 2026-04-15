@@ -334,16 +334,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if !isRecording && !isProcessing {
                         updateStatusBarIcon(.error)
                     }
-                    // Auto-retry after 10 seconds
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-                        self?.checkSTTService()
-                    }
                 }
             }
             if result.isOnline {
                 AppLogger.info("服务健康检查: online (\(result.reason))")
             } else {
                 AppLogger.warn("服务健康检查: offline, 原因: \(result.reason)")
+                // Auto-retry after 10 seconds using Task.sleep (not DispatchQueue.main.asyncAfter)
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                if !Task.isCancelled {
+                    checkSTTService()
+                }
             }
         }
     }
