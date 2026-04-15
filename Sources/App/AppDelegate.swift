@@ -314,7 +314,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Service Check
 
+    private var sttRetryTimer: Timer?
+
     private func checkSTTService() {
+        sttRetryTimer?.invalidate()
+        sttRetryTimer = nil
         guard let sttClient else {
             statusMenuItem.title = "❌ STT 地址无效"
             updateStatusBarIcon(.error)
@@ -326,25 +330,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await MainActor.run {
                 if result.isOnline {
                     statusMenuItem.title = "✅ STT 服务在线"
-                    if !isRecording && !isProcessing {
-                        updateStatusBarIcon(.idle)
+                    if !self.isRecording && !self.isProcessing {
+                        self.updateStatusBarIcon(.idle)
                     }
                 } else {
                     statusMenuItem.title = "❌ STT 服务离线 - \(result.reason)"
-                    if !isRecording && !isProcessing {
-                        updateStatusBarIcon(.error)
+                    if !self.isRecording && !self.isProcessing {
+                        self.updateStatusBarIcon(.error)
                     }
+                    // Timer.scheduledTimer uses .default mode which doesn't fire
+                    // in NSApplication's eventTracking run loop mode.
+                    // Must explicitly add to .common mode.
+                    let timer = Timer(timeInterval: 10, repeats: false) { [weak self] _ in
+                        self?.checkSTTService()
+                    }
+                    self.sttRetryTimer = timer
+                    RunLoop.current.add(timer, forMode: .common)
                 }
             }
             if result.isOnline {
                 AppLogger.info("服务健康检查: online (\(result.reason))")
             } else {
                 AppLogger.warn("服务健康检查: offline, 原因: \(result.reason)")
-                // Auto-retry after 10 seconds using Task.sleep (not DispatchQueue.main.asyncAfter)
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                if !Task.isCancelled {
-                    checkSTTService()
-                }
             }
         }
     }
@@ -627,6 +634,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         durationTimer?.invalidate()
         pulseTimer?.invalidate()
         healthCheckTimer?.invalidate()
+        sttRetryTimer?.invalidate()
         hotkeyMonitor.stop()
         NSApp.terminate(nil)
     }
