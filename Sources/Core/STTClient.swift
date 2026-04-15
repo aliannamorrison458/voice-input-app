@@ -7,6 +7,51 @@ public final class STTClient {
         public let reason: String
     }
 
+    /// Rich STT response matching the API docs.
+    public struct TranscribeResult {
+        public let text: String
+        public let originalText: String?
+        public let language: String?
+        public let durationSeconds: Double?
+        public let processingSeconds: Double?
+        public let correctionSeconds: Double?
+        public let backend: String?
+        public let ollamaModel: String?
+        public let segments: [Segment]?
+
+        public struct Segment {
+            public let start: Double
+            public let end: Double
+            public let text: String
+            public let confidence: Double?
+        }
+
+        /// Parse from API JSON response.
+        static func from(json: [String: Any]) -> TranscribeResult? {
+            guard let text = json["text"] as? String else { return nil }
+            var segs: [Segment]?
+            if let rawSegs = json["segments"] as? [[String: Any]] {
+                segs = rawSegs.compactMap { s in
+                    guard let start = s["start"] as? Double,
+                          let end = s["end"] as? Double,
+                          let text = s["text"] as? String else { return nil }
+                    return Segment(start: start, end: end, text: text, confidence: s["confidence"] as? Double)
+                }
+            }
+            return TranscribeResult(
+                text: text,
+                originalText: json["original_text"] as? String,
+                language: json["language"] as? String,
+                durationSeconds: json["duration_seconds"] as? Double,
+                processingSeconds: json["processing_seconds"] as? Double,
+                correctionSeconds: json["correction_seconds"] as? Double,
+                backend: json["backend"] as? String,
+                ollamaModel: json["ollama_model"] as? String,
+                segments: segs
+            )
+        }
+    }
+
     private let baseURL: URL
     private let language: String
     private let sampleRate: Double
@@ -31,11 +76,13 @@ public final class STTClient {
         self.backend = backend
     }
 
+    // MARK: - Health Check
+
     public func healthCheck() async -> HealthCheckResult {
         let url = baseURL.appendingPathComponent("health")
         do {
             var request = URLRequest(url: url)
-            request.timeoutInterval = 5 // 5 second timeout for health check
+            request.timeoutInterval = 5
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 return HealthCheckResult(isOnline: false, reason: "响应不是 HTTP")
@@ -49,7 +96,8 @@ public final class STTClient {
 
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             if json?["status"] as? String == "ok" {
-                return HealthCheckResult(isOnline: true, reason: "status=ok")
+                let activeBackend = json?["active_backend"] as? String ?? "unknown"
+                return HealthCheckResult(isOnline: true, reason: "status=ok, backend=\(activeBackend)")
             }
 
             let status = json?["status"] as? String ?? "missing"
@@ -63,22 +111,41 @@ public final class STTClient {
         }
     }
 
+    // MARK: - Transcribe (returns text only)
+
     public func transcribe(audioData: Data, timeout: TimeInterval = 30, retries: Int = 2) async throws -> String {
+        let result = try await transcribeWithDetails(audioData: audioData, timeout: timeout, retries: retries)
+        return result.text
+    }
+
+    // MARK: - Transcribe (returns full result)
+
+    public func transcribeWithDetails(audioData: Data, timeout: TimeInterval = 30, retries: Int = 2) async throws -> TranscribeResult {
         var lastError: Error?
         for attempt in 0...retries {
             if attempt > 0 {
                 AppLogger.info("STT 重试第 \(attempt) 次")
-                try await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000) // 1s delay between retries
+                try await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
             }
             do {
+                let result: TranscribeResult
                 switch transcribeMode {
                 case .file:
-                    return try await transcribeByFile(audioData: audioData, timeout: timeout)
+                    result = try await transcribeByFile(audioData: audioData, timeout: timeout)
                 case .pcm:
-                    return try await transcribeByPCM(audioData: audioData, timeout: timeout)
+                    result = try await transcribeByPCM(audioData: audioData, timeout: timeout)
                 case .websocket:
-                    return try await transcribeByWebSocket(audioData: audioData)
+                    result = try await transcribeByWebSocket(audioData: audioData)
                 }
+
+                // Log processing details
+                if let proc = result.processingSeconds {
+                    AppLogger.info("STT 完成: backend=\(result.backend ?? "?"), 耗时=\(String(format: "%.2f", proc))s")
+                }
+                if let original = result.originalText, original != result.text {
+                    AppLogger.info("Ollama 校正: \"\(original.prefix(50))\" → \"\(result.text.prefix(50))\"")
+                }
+                return result
             } catch {
                 lastError = error
                 let isRetryable = error is URLError
@@ -89,7 +156,9 @@ public final class STTClient {
         throw lastError ?? STTError.noTextInResponse
     }
 
-    private func transcribeByFile(audioData: Data, timeout: TimeInterval) async throws -> String {
+    // MARK: - File Upload Mode
+
+    private func transcribeByFile(audioData: Data, timeout: TimeInterval) async throws -> TranscribeResult {
         let wav = wavData(from: audioData)
         return try await transcribeByMultipart(
             path: "v1/audio/transcriptions",
@@ -97,14 +166,18 @@ public final class STTClient {
             mimeType: "audio/wav",
             fileData: wav,
             extraFormFields: [
+                ("model", "whisper-1"),
                 ("language", language),
+                ("response_format", "json"),
                 ("backend", backend),
             ],
             timeout: timeout
         )
     }
 
-    private func transcribeByPCM(audioData: Data, timeout: TimeInterval) async throws -> String {
+    // MARK: - PCM Mode
+
+    private func transcribeByPCM(audioData: Data, timeout: TimeInterval) async throws -> TranscribeResult {
         return try await transcribeByMultipart(
             path: "v1/transcribe/pcm",
             fileName: "audio.pcm",
@@ -119,6 +192,8 @@ public final class STTClient {
         )
     }
 
+    // MARK: - Multipart Request
+
     private func transcribeByMultipart(
         path: String,
         fileName: String,
@@ -126,7 +201,7 @@ public final class STTClient {
         fileData: Data,
         extraFormFields: [(String, String)],
         timeout: TimeInterval
-    ) async throws -> String {
+    ) async throws -> TranscribeResult {
         let url = baseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -159,13 +234,15 @@ public final class STTClient {
         }
 
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        guard let text = json?["text"] as? String else {
+        guard let result = TranscribeResult.from(json: json ?? [:]) else {
             throw STTError.noTextInResponse
         }
-        return text
+        return result
     }
 
-    private func transcribeByWebSocket(audioData: Data) async throws -> String {
+    // MARK: - WebSocket Mode
+
+    private func transcribeByWebSocket(audioData: Data) async throws -> TranscribeResult {
         guard let wsBase = websocketURL() else {
             throw STTError.invalidURL
         }
@@ -176,6 +253,7 @@ public final class STTClient {
             task.cancel(with: .normalClosure, reason: nil)
         }
 
+        // Send config
         let config: [String: Any] = [
             "action": "config",
             "language": language,
@@ -184,37 +262,61 @@ public final class STTClient {
         ]
         let configData = try JSONSerialization.data(withJSONObject: config)
         try await task.send(.string(String(data: configData, encoding: .utf8) ?? "{}"))
+
+        // Wait for config_ok
+        let configAck = try await task.receive()
+        if case .string(let ackText) = configAck {
+            if let ackData = ackText.data(using: .utf8),
+               let ackJson = try? JSONSerialization.jsonObject(with: ackData) as? [String: Any],
+               let type = ackJson["type"] as? String {
+                if type == "error" {
+                    let msg = ackJson["message"] as? String ?? "unknown"
+                    throw STTError.httpError(0, "WebSocket config error: \(msg)")
+                }
+                if type != "config_ok" {
+                    AppLogger.warn("WebSocket unexpected ack: \(type)")
+                }
+            }
+        }
+
+        // Send audio and end
         try await task.send(.data(audioData))
         try await task.send(.string("{\"action\":\"end\"}"))
 
+        // Receive results
         while true {
             let message = try await task.receive()
             switch message {
             case .string(let text):
-                if let finalText = parseFinalText(from: text) {
-                    return finalText
-                }
+                if let result = parseWebSocketMessage(text) { return result }
             case .data(let data):
                 if let text = String(data: data, encoding: .utf8),
-                   let finalText = parseFinalText(from: text) {
-                    return finalText
-                }
+                   let result = parseWebSocketMessage(text) { return result }
             @unknown default:
                 continue
             }
         }
     }
 
-    private func parseFinalText(from message: String) -> String? {
+    private func parseWebSocketMessage(_ message: String) -> TranscribeResult? {
         guard let data = message.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String,
-              type == "final",
-              let text = json["text"] as? String else {
+              let type = json["type"] as? String else {
             return nil
         }
-        return text
+
+        if type == "final" {
+            return TranscribeResult.from(json: json)
+        }
+        if type == "error" {
+            // Will be handled as throw in the caller
+            return nil
+        }
+        // chunk_ok, config_ok, reset_ok — ignore
+        return nil
     }
+
+    // MARK: - Helpers
 
     private func websocketURL() -> URL? {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
@@ -234,20 +336,17 @@ public final class STTClient {
         let dataSize = UInt32(pcm.count)
 
         var data = Data()
-        // RIFF header
         data.append(contentsOf: "RIFF".utf8)
         data.append(littleEndian: UInt32(36 + dataSize))
         data.append(contentsOf: "WAVE".utf8)
-        // fmt chunk
         data.append(contentsOf: "fmt ".utf8)
-        data.append(littleEndian: UInt32(16)) // chunk size
-        data.append(littleEndian: UInt16(1))  // PCM
+        data.append(littleEndian: UInt32(16))
+        data.append(littleEndian: UInt16(1))
         data.append(littleEndian: channels)
         data.append(littleEndian: sr)
         data.append(littleEndian: byteRate)
         data.append(littleEndian: blockAlign)
         data.append(littleEndian: bitsPerSample)
-        // data chunk
         data.append(contentsOf: "data".utf8)
         data.append(littleEndian: dataSize)
         data.append(pcm)
