@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordStartTime: Date?
     private var durationTimer: Timer?
     private var settingsWindowController: SettingsWindowController?
+    private var streamingSession: StreamingSession?
+    /// Set when user releases hotkey while WebSocket is still connecting
+    private var pendingStopWhileConnecting = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Request notification permission (requires proper app bundle)
@@ -311,7 +314,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func onHotkeyRelease() {
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.isRecording else { return }
+            guard let self else { return }
+            // If still connecting WebSocket, just set the flag — connection callback will handle it
+            if self.isRecording && !self.recorder.isActuallyRecording && self.streamingSession != nil {
+                self.pendingStopWhileConnecting = true
+                return
+            }
+            guard self.isRecording else { return }
             self.stopRecordingAndTranscribe()
         }
     }
@@ -364,6 +373,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func initiateRecording() {
         AppLogger.info("开始录音")
+        pendingStopWhileConnecting = false
+
+        if config.transcribeMode == .websocket, let sttClient {
+            // WebSocket streaming mode: connect first, then start recording with streaming callback
+            let session = sttClient.createStreamingSession()
+            streamingSession = session
+
+            Task {
+                do {
+                    try await session.connect()
+                    // Connected — wire streaming callback and start recording
+                    await MainActor.run {
+                        self.recorder.onPCMChunk = { [weak session] chunk in
+                            session?.sendAudioChunk(chunk)
+                        }
+                        // Check if user released hotkey while we were connecting
+                        if self.pendingStopWhileConnecting {
+                            self.pendingStopWhileConnecting = false
+                            AppLogger.info("用户在连接期间释放了快捷键，立即停止")
+                            self.startRecorder()
+                            self.stopRecordingAndTranscribe()
+                            return
+                        }
+                        self.startRecorder()
+                    }
+                } catch {
+                    // Connection failed — fall back to buffered recording
+                    await MainActor.run {
+                        AppLogger.warn("WebSocket 连接失败，回退到批量模式: \(error.localizedDescription)")
+                        self.streamingSession = nil
+                        self.startRecorder()
+                    }
+                }
+            }
+        } else {
+            // File/PCM mode: regular buffered recording
+            startRecorder()
+        }
+    }
+
+    private func startRecorder() {
         do {
             try recorder.start()
             if config.soundEffect { SoundEffect.play(.start) }
@@ -399,6 +449,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         recordMenuItem.title = "⏳ 转写中..."
         if config.soundEffect { SoundEffect.play(.stop) }
 
+        // Stop recorder (this clears onPCMChunk callback)
+        _ = recorder.stop()
+
+        // WebSocket streaming mode: finalize session to get remaining transcription
+        if let session = streamingSession {
+            streamingSession = nil
+            let duration = recordStartTime.map { Date().timeIntervalSince($0) } ?? 0
+            recordStartTime = nil
+            AppLogger.info("停止录音 (WebSocket streaming), 时长=\(String(format: "%.1f", duration))s")
+
+            Task {
+                do {
+                    let text = try await session.finalize()
+                    await MainActor.run {
+                        session.disconnect()
+                        self.handleTranscriptionResult(text)
+                    }
+                } catch {
+                    await MainActor.run {
+                        session.disconnect()
+                        AppLogger.error("WebSocket finalize 失败: \(error.localizedDescription)")
+                        // Fall back: show error but also offer any partial text
+                        self.showError("流式识别失败: \(error.localizedDescription)")
+                        self.resetUI()
+                    }
+                }
+            }
+            return
+        }
+
+        // Non-streaming mode: regular batch transcription
         guard let sttClient else {
             isProcessing = false
             recordStartTime = nil
@@ -479,6 +560,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatusBarIcon(.idle)
         recordMenuItem.title = "🎙️ 开始录音"
         statusMenuItem.title = "✅ STT 服务在线" + (sttClient.map { " (\($0.currentBaseURL))" } ?? "")
+    }
+
+    /// Shared handler for transcription results (used by both streaming and batch modes).
+    private func handleTranscriptionResult(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            self.lastText = trimmed
+            self.lastResultMenuItem.isEnabled = true
+            self.lastResultMenuItem.title = "📋 粘贴: \(String(trimmed.prefix(20)))\(trimmed.count > 20 ? "..." : "")"
+            if self.config.autoPaste {
+                TextInjector.inject(trimmed)
+                AppLogger.info("识别成功并自动粘贴, 文本长度=\(trimmed.count)")
+            } else {
+                AppLogger.info("识别成功, 文本长度=\(trimmed.count)")
+            }
+            self.flashSuccess()
+            self.showNotification("✅ 识别完成", body: String(trimmed.prefix(50)))
+        } else {
+            AppLogger.warn("识别成功但返回空文本")
+            self.statusItem.button?.title = "🤷"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                guard let self, !self.isRecording, !self.isProcessing else { return }
+                self.updateStatusBarIcon(.idle)
+            }
+            self.statusMenuItem.title = "🤷 没有识别到文字，可以重试"
+        }
+        self.resetUI()
     }
 
     /// Brief success flash to acknowledge completion
@@ -639,6 +747,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         AppLogger.info("应用退出")
+        streamingSession?.disconnect()
+        streamingSession = nil
         durationTimer?.invalidate()
         pulseTimer?.invalidate()
         healthCheckTimer?.invalidate()

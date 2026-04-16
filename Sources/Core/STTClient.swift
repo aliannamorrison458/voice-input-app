@@ -316,6 +316,20 @@ public final class STTClient {
         return nil
     }
 
+    // MARK: - Real-Time Streaming Session
+    /// Connects WebSocket and streams PCM chunks in real-time.
+    /// Call `sendAudioChunk(_:)` during recording, then `finalize()` to get results.
+
+    /// Creates a new streaming session. Call connect() to establish the WebSocket.
+    public func createStreamingSession() -> StreamingSession {
+        return StreamingSession(
+            wsURL: websocketURL()?.appendingPathComponent("v1/stream"),
+            language: language,
+            sampleRate: Int(sampleRate),
+            backend: backend
+        )
+    }
+
     // MARK: - Helpers
 
     private func websocketURL() -> URL? {

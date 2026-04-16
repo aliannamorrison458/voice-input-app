@@ -12,6 +12,13 @@ public final class AudioRecorder {
     /// Max buffer: 5 minutes of 16kHz mono Int16
     private let maxBufferSize: Int
 
+    /// Called with each raw PCM Int16 chunk during recording (for real-time WebSocket streaming).
+    /// Set this before calling start() to enable streaming mode.
+    public var onPCMChunk: ((Data) -> Void)?
+
+    /// Whether audio is actively being captured (engine is running).
+    public var isActuallyRecording: Bool { recording && engine?.isRunning == true }
+
     public init(sampleRate: Double = 16000) {
         self.sampleRate = sampleRate
         self.maxBufferSize = Int(sampleRate) * 2 * 300
@@ -59,11 +66,16 @@ public final class AudioRecorder {
             if error == nil, let channelData = convertedBuffer.int16ChannelData {
                 let frameLength = Int(convertedBuffer.frameLength)
                 let bytes = UnsafeBufferPointer(start: channelData[0], count: frameLength)
+                let pcmData = Data(bytes: bytes.baseAddress!, count: frameLength * 2)
+
                 self.lock.lock()
-                if self.audioBuffer.count + frameLength * 2 <= self.maxBufferSize {
-                    self.audioBuffer.append(Data(bytes: bytes.baseAddress!, count: frameLength * 2))
+                if self.audioBuffer.count + pcmData.count <= self.maxBufferSize {
+                    self.audioBuffer.append(pcmData)
                 }
                 self.lock.unlock()
+
+                // Streaming callback — send chunk to WebSocket immediately
+                self.onPCMChunk?(pcmData)
             }
         }
 
@@ -73,6 +85,7 @@ public final class AudioRecorder {
 
     public func stop() -> Data? {
         recording = false
+        onPCMChunk = nil
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
